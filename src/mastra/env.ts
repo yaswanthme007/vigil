@@ -8,13 +8,14 @@ import { resolve } from "path";
  * no-op there. In standalone scripts run via `tsx` (e.g. scripts/test-setup.ts),
  * `.env.local` is NOT loaded automatically, so we parse it manually.
  *
- * We also bridge GEMINI_API_KEY (our project convention, per CLAUDE.md) to
- * GOOGLE_GENERATIVE_AI_API_KEY, which is the env var Mastra's model router
- * expects for the Google provider.
+ * Keys:
+ * - GROQ_API_KEY  — LLM (Groq llama-3.1-8b-instant via @ai-sdk/groq)
+ * - GEMINI_API_KEY — embeddings only (Google text-embedding-004)
+ * - QDRANT_URL / QDRANT_API_KEY — vector store
  */
 function loadEnvFile(): void {
   // If the keys are already present (Next.js runtime), skip file parsing.
-  if (process.env.GEMINI_API_KEY && process.env.QDRANT_URL) return;
+  if (process.env.GROQ_API_KEY && process.env.QDRANT_URL) return;
 
   try {
     const raw = readFileSync(resolve(process.cwd(), ".env.local"), "utf8");
@@ -44,11 +45,3 @@ function loadEnvFile(): void {
 }
 
 loadEnvFile();
-
-// Mastra's Google provider reads GOOGLE_GENERATIVE_AI_API_KEY; bridge our key.
-if (
-  process.env.GEMINI_API_KEY &&
-  !process.env.GOOGLE_GENERATIVE_AI_API_KEY
-) {
-  process.env.GOOGLE_GENERATIVE_AI_API_KEY = process.env.GEMINI_API_KEY;
-}

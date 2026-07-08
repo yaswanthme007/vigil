@@ -17,14 +17,15 @@ The app must always be runnable at end of every day. Never commit a broken build
 - Mastra (@mastra/core, @mastra/rag) — REQUIRED by hackathon
 - Qdrant Cloud (@qdrant/js-client-rest) — REQUIRED by hackathon
 - Enkrypt AI — REQUIRED by hackathon
-- Google Gemini 2.0 Flash (LLM via Mastra model routing)
-- Google text-embedding-004 (embeddings for Qdrant)
+- Groq llama-3.1-8b-instant (LLM via @ai-sdk/groq provider)
+- Google text-embedding-004 (embeddings for Qdrant) — Gemini used for embeddings only
 - Deploy: Vercel (frontend) + Qdrant Cloud (DB)
 
 ## Environment variables (.env.local)
 QDRANT_URL=
 QDRANT_API_KEY=
-GEMINI_API_KEY=
+GROQ_API_KEY=          # LLM (Groq llama-3.1-8b-instant)
+GEMINI_API_KEY=        # embeddings only (text-embedding-004)
 ENKRYPT_API_KEY=
 
 ## Repo structure

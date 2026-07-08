@@ -18,11 +18,11 @@ import {
 async function main() {
   console.log("=== Vigil Day-0 Setup Test ===\n");
 
-  // --- 1. Gemini via Mastra ------------------------------------------------
-  console.log("[1/3] Testing Vigil agent (Gemini 2.0 Flash via Mastra)...");
+  // --- 1. Groq LLM via Mastra ----------------------------------------------
+  console.log("[1/3] Testing Vigil agent (Groq llama-3.1-8b-instant)...");
   const res = await vigilAgent.generate("hello");
   console.log("  Agent response:", res.text.trim());
-  console.log("  ✓ Gemini connection OK\n");
+  console.log("  ✓ Groq connection OK\n");
 
   // --- 2. Create Qdrant collections ---------------------------------------
   console.log("[2/3] Creating Qdrant collections...");
@@ -50,7 +50,7 @@ async function main() {
     throw new Error(`Missing collections: ${missing.join(", ")}`);
   }
 
-  console.log("\n✅ All systems go — Gemini + Qdrant verified.");
+  console.log("\n✅ All systems go — Groq + Qdrant verified.");
 }
 
 main().catch((err) => {
