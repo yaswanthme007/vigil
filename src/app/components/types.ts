@@ -14,6 +14,7 @@ import type {
 export type RunStatus =
   | "running"
   | "awaiting_approval"
+  | "blocked"
   | "generating_postmortem"
   | "completed"
   | "rejected"

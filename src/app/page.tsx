@@ -87,6 +87,27 @@ export default function Dashboard() {
     [poll]
   );
 
+  const escalate = useCallback(async () => {
+    if (!runIdRef.current) return;
+    setBusy(true);
+    try {
+      await fetch("/api/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          runId: runIdRef.current,
+          escalate: true,
+          engineer_id: "on-call-engineer",
+        }),
+      });
+      await poll();
+    } catch {
+      /* ignore */
+    } finally {
+      setBusy(false);
+    }
+  }, [poll]);
+
   return (
     <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
       <Header memoryCount={memoryCount} />
@@ -125,8 +146,16 @@ export default function Dashboard() {
 
             {run.status === "escalated" && (
               <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
-                ⚠ No root-cause hypothesis passed the Enkrypt Grounding Gate.
-                Escalated to a human — Vigil will not guess.
+                {run.remediation
+                  ? "⚠ Safety Gate escalation — a destructive remediation was routed to a human engineer. Vigil will not apply it."
+                  : "⚠ No root-cause hypothesis passed the Enkrypt Grounding Gate. Escalated to a human — Vigil will not guess."}
+              </div>
+            )}
+
+            {run.status === "blocked" && (
+              <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
+                ⚠ The Enkrypt Safety Gate blocked this remediation as destructive.
+                It cannot be approved — reject or escalate to a human.
               </div>
             )}
 
@@ -139,6 +168,7 @@ export default function Dashboard() {
                 <RemediationPanel
                   run={run}
                   onDecision={submitDecision}
+                  onEscalate={escalate}
                   busy={busy}
                 />
                 <PostMortemView run={run} />
@@ -165,6 +195,10 @@ function StatusPill({ run }: { run: RunState }) {
     awaiting_approval: {
       label: "Awaiting Approval",
       cls: "border-amber-500/40 bg-amber-500/10 text-amber-300",
+    },
+    blocked: {
+      label: "Blocked",
+      cls: "border-red-500/40 bg-red-500/10 text-red-300",
     },
     generating_postmortem: {
       label: "Writing Post-Mortem",

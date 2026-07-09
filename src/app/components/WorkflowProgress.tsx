@@ -6,6 +6,7 @@ export function WorkflowProgress({ run }: { run: RunState }) {
     run.status === "completed" ||
     run.status === "rejected" ||
     run.status === "escalated" ||
+    run.status === "blocked" ||
     run.status === "error";
 
   return (
@@ -18,6 +19,7 @@ export function WorkflowProgress({ run }: { run: RunState }) {
           n === current &&
           (run.status === "rejected" ||
             run.status === "escalated" ||
+            run.status === "blocked" ||
             run.status === "error");
 
         const color = blocked

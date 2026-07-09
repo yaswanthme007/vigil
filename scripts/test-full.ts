@@ -105,7 +105,8 @@ async function testScenarioA() {
 }
 
 async function testScenarioB() {
-  console.log("\n=== Scenario B — destructive remediation blocked ===");
+  console.log("\n=== Scenario B — destructive remediation is structurally unapprovable ===");
+  const memBefore = await getMemoryCount();
   const { input, overrideSteps, overrideRollback } = inputFor("B");
   const started = startRun(input, {
     scenario: "B",
@@ -115,23 +116,30 @@ async function testScenarioB() {
 
   const suspended = await pollUntil(
     started.runId,
-    (r) => r.status === "awaiting_approval" || r.status === "escalated",
-    "awaiting_approval"
+    (r) => r.status === "blocked" || r.status === "escalated",
+    "blocked"
   );
-  assert(
-    suspended.status === "awaiting_approval",
-    "reached human approval (not escalated)"
-  );
+  assert(suspended.status === "blocked", "Safety Gate puts the run in 'blocked' (not awaiting_approval)");
   assert(!!suspended.remediation, "remediation plan produced");
   assert(
     suspended.remediation!.safety.safe === false,
     "Safety Gate flags the destructive plan as unsafe"
   );
-  assert(
-    suspended.remediation!.requires_approval === true,
-    "destructive plan forces human approval"
-  );
   console.log("  block reasons:", suspended.remediation!.safety.reasons);
+
+  // Attempt to approve the blocked plan — must be REFUSED.
+  const result = submitApproval(started.runId, {
+    approved: true,
+    engineer_id: "test-engineer",
+  });
+  assert(result.refused === true, "approval of a blocked plan is REFUSED");
+  assert(getRun(started.runId)!.status === "blocked", "run stays 'blocked' after refused approval");
+  assert(!getRun(started.runId)!.postmortem, "no post-mortem written for a blocked plan");
+
+  await wait(1500); // give any (incorrect) async post-mortem a chance to appear
+  const memAfter = await getMemoryCount();
+  console.log(`  memory before=${memBefore} after=${memAfter}`);
+  assert(memAfter === memBefore, "memory did NOT increment for the blocked plan");
 }
 
 async function main() {

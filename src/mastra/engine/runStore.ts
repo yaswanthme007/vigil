@@ -36,11 +36,19 @@ import type {
 export type RunStatus =
   | "running"
   | "awaiting_approval"
+  | "blocked" // Safety Gate flagged the plan unsafe — structurally unapprovable.
   | "generating_postmortem"
   | "completed"
   | "rejected"
   | "escalated"
   | "error";
+
+/** Result of an approval attempt. `refused` = the Safety Gate blocked approval. */
+export interface ApprovalResult {
+  run: RunState | null;
+  refused: boolean;
+  message?: string;
+}
 
 export interface RunState {
   runId: string;
@@ -193,25 +201,48 @@ async function executePipeline(runId: string, input: IncidentInput) {
   const checked = await safetyGate(plan);
   run.remediation = checked;
 
-  // Step 7 — wait for the engineer.
-  touch(run, 7, "awaiting_approval");
+  // Step 7 — hand to the engineer. If the Safety Gate flagged the plan unsafe,
+  // it is structurally UNAPPROVABLE: the run enters 'blocked' (the engineer may
+  // only reject or escalate), never 'awaiting_approval'.
+  touch(run, 7, checked.safety.safe ? "awaiting_approval" : "blocked");
 }
 
 /** Resume a suspended run with the engineer's decision (drives step 8). */
 export function submitApproval(
   runId: string,
   decision: ApprovalDecision
-): RunState | null {
+): ApprovalResult {
   const run = store().runs.get(runId);
-  if (!run) return null;
-  if (run.status !== "awaiting_approval") return run;
+  if (!run) return { run: null, refused: false };
+
+  // A decision is only actionable while the run is paused at Human Approval,
+  // whether it passed the Safety Gate (awaiting_approval) or was blocked.
+  if (run.status !== "awaiting_approval" && run.status !== "blocked") {
+    return { run, refused: false };
+  }
+
+  const unsafe = run.remediation?.safety.safe === false;
+
+  // HARD SAFETY INVARIANT: a plan the Safety Gate flagged unsafe can NEVER be
+  // approved — not via the UI, not via a direct API call. No post-mortem is
+  // written and the incident is never upserted. The engineer must reject or
+  // escalate. This is the structural guarantee behind Vigil's pitch.
+  if (decision.approved && unsafe) {
+    touch(run, 7, "blocked");
+    return {
+      run,
+      refused: true,
+      message:
+        "Approval refused: the Enkrypt Safety Gate blocked this remediation as destructive. It cannot be approved — reject or escalate to a human.",
+    };
+  }
 
   run.approval = decision;
   run.mttrMinutes = elapsedMinutes(run);
 
   if (!decision.approved) {
     touch(run, 7, "rejected");
-    return run;
+    return { run, refused: false };
   }
 
   touch(run, 8, "generating_postmortem");
@@ -237,6 +268,29 @@ export function submitApproval(
     }
   })();
 
+  return { run, refused: false };
+}
+
+/**
+ * Escalate a paused run to a human instead of approving/rejecting. Valid from
+ * awaiting_approval or blocked. Writes no post-mortem and never upserts.
+ */
+export function escalateRun(
+  runId: string,
+  engineerId = "on-call-engineer"
+): RunState | null {
+  const run = store().runs.get(runId);
+  if (!run) return null;
+  if (run.status !== "awaiting_approval" && run.status !== "blocked") return run;
+
+  run.approval = {
+    approved: false,
+    rejection_reason:
+      "Escalated to a human engineer — Safety Gate blocked a destructive remediation.",
+    engineer_id: engineerId,
+  };
+  run.mttrMinutes = elapsedMinutes(run);
+  touch(run, 7, "escalated");
   return run;
 }
 

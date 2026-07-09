@@ -7,10 +7,12 @@ import type { RunState } from "./types";
 export function RemediationPanel({
   run,
   onDecision,
+  onEscalate,
   busy,
 }: {
   run: RunState;
   onDecision: (approved: boolean, rejectionReason?: string) => void;
+  onEscalate: () => void;
   busy: boolean;
 }) {
   const plan = run.remediation;
@@ -28,8 +30,11 @@ export function RemediationPanel({
   }
 
   const blocked = !plan.safety.safe;
-  const awaiting = run.status === "awaiting_approval";
-  const decided = run.approval;
+  // The engineer can act while the run is paused at Human Approval — whether it
+  // passed the Safety Gate (awaiting_approval) or was blocked by it (blocked).
+  const actionable =
+    run.status === "awaiting_approval" || run.status === "blocked";
+  const decided = run.status === "blocked" ? undefined : run.approval;
 
   return (
     <Card title="Proposed Remediation" step={5} accent={blocked ? "#fca5a5" : undefined}>
@@ -95,8 +100,11 @@ export function RemediationPanel({
           <p className="text-xs text-white/60">{plan.rollback_procedure}</p>
         </div>
 
-        {/* Decision area */}
-        {awaiting && plan.requires_approval && !rejecting && (
+        {/* Decision area — surfaced whenever the run is paused at Human Approval.
+            A SAFE plan can be Approved or Rejected. A plan the Safety Gate blocked
+            is structurally unapprovable: no Approve button exists, only a disabled
+            "Blocked by Safety Gate" marker plus Reject / Escalate. */}
+        {actionable && !rejecting && !blocked && (
           <div className="flex gap-2 border-t border-white/10 pt-4">
             <button
               disabled={busy}
@@ -115,7 +123,33 @@ export function RemediationPanel({
           </div>
         )}
 
-        {awaiting && rejecting && (
+        {actionable && !rejecting && blocked && (
+          <div className="flex gap-2 border-t border-white/10 pt-4">
+            <button
+              disabled
+              title="The Enkrypt Safety Gate blocked this remediation — it cannot be approved."
+              className="flex-1 cursor-not-allowed rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-300/70"
+            >
+              ⚠ Blocked by Safety Gate
+            </button>
+            <button
+              disabled={busy}
+              onClick={() => setRejecting(true)}
+              className="flex-1 rounded-lg border border-red-500/40 bg-red-500/15 px-4 py-2 text-sm font-semibold text-red-200 transition hover:bg-red-500/25 disabled:opacity-40"
+            >
+              Reject
+            </button>
+            <button
+              disabled={busy}
+              onClick={onEscalate}
+              className="flex-1 rounded-lg border border-amber-500/40 bg-amber-500/15 px-4 py-2 text-sm font-semibold text-amber-200 transition hover:bg-amber-500/25 disabled:opacity-40"
+            >
+              Escalate
+            </button>
+          </div>
+        )}
+
+        {actionable && rejecting && (
           <div className="space-y-2 border-t border-white/10 pt-4">
             <textarea
               value={reason}
