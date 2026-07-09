@@ -1,54 +1,60 @@
 import "./env";
-import {
-  GoogleGenerativeAI,
-  TaskType,
-  type EmbedContentRequest,
-} from "@google/generative-ai";
+import { pipeline, env, type FeatureExtractionPipeline } from "@xenova/transformers";
 
 /**
- * Embeddings for Vigil — Google gemini-embedding-001, truncated to 768-dim to
- * match the Qdrant collection vector size. Uses GEMINI_API_KEY.
+ * Embeddings for Vigil — LOCAL, using @xenova/transformers (all-MiniLM-L6-v2,
+ * 384-dim). Runs entirely in-process with no API key, quota, or network call at
+ * request time, so it cannot fail on stage the way a hosted embedding API can.
  *
- * gemini-embedding-001 defaults to 3072 dimensions but supports Matryoshka
- * truncation via `outputDimensionality`; we request 768 so vectors fit the
- * existing collections. Documents and queries use different task types
- * (RETRIEVAL_DOCUMENT vs RETRIEVAL_QUERY), which improves retrieval quality.
+ * The model weights are downloaded once from the Hugging Face hub and cached to
+ * disk (warm up with `warmupEmbeddings()` at server start). Groq (LLM), Qdrant,
+ * and Enkrypt are unchanged. GEMINI_API_KEY remains commented in .env.local as a
+ * documented fallback path if we ever want to revert to hosted embeddings.
+ *
+ * The public interface is unchanged: embedDocument() / embedQuery() (and the
+ * internal embed(text, taskType?)), so no calling code needs to change. taskType
+ * is accepted for signature compatibility but the local model does not use it.
  */
-export const EMBED_MODEL = "gemini-embedding-001";
-export const EMBED_DIM = 768;
+export const EMBED_MODEL = "Xenova/all-MiniLM-L6-v2";
+export const EMBED_DIM = 384;
 
-let client: GoogleGenerativeAI | null = null;
+// Cache directory inside the project so the model persists across restarts.
+env.cacheDir = ".cache/transformers";
+// We only use hub models; allow the local cache to satisfy repeat loads.
+env.allowLocalModels = false;
 
-function getClient(): GoogleGenerativeAI {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) {
-    throw new Error(
-      "GEMINI_API_KEY is not set — required for embeddings (see CLAUDE.md)."
-    );
+let extractorPromise: Promise<FeatureExtractionPipeline> | null = null;
+
+/** Lazily load (and cache) the feature-extraction pipeline. */
+function getExtractor(): Promise<FeatureExtractionPipeline> {
+  if (!extractorPromise) {
+    extractorPromise = pipeline("feature-extraction", EMBED_MODEL);
   }
-  if (!client) client = new GoogleGenerativeAI(key);
-  return client;
+  return extractorPromise;
 }
 
-async function embed(text: string, taskType: TaskType): Promise<number[]> {
-  const model = getClient().getGenerativeModel({ model: EMBED_MODEL });
-  // outputDimensionality is forwarded to the API even though the old SDK type
-  // doesn't declare it, so we widen the request type to include it.
-  const request: EmbedContentRequest & { outputDimensionality: number } = {
-    content: { role: "user", parts: [{ text }] },
-    taskType,
-    outputDimensionality: EMBED_DIM,
-  };
-  const res = await model.embedContent(request);
-  return res.embedding.values;
+/**
+ * Embed a single piece of text into a 384-dim unit vector (mean-pooled +
+ * L2-normalized, ideal for Qdrant cosine distance). `taskType` is ignored by the
+ * local model and exists only to preserve the previous call signature.
+ */
+async function embed(text: string, _taskType?: unknown): Promise<number[]> {
+  const extractor = await getExtractor();
+  const output = await extractor(text, { pooling: "mean", normalize: true });
+  return Array.from(output.data as Float32Array);
 }
 
 /** Embed a stored document (incident summary, runbook content, log chunk). */
 export function embedDocument(text: string): Promise<number[]> {
-  return embed(text, TaskType.RETRIEVAL_DOCUMENT);
+  return embed(text);
 }
 
 /** Embed a search query (current incident description). */
 export function embedQuery(text: string): Promise<number[]> {
-  return embed(text, TaskType.RETRIEVAL_QUERY);
+  return embed(text);
+}
+
+/** Preload the model so the first real request doesn't pay the cold-start cost. */
+export async function warmupEmbeddings(): Promise<void> {
+  await embed("warmup");
 }

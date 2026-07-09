@@ -2,13 +2,14 @@ import { qdrant } from "./client";
 
 /**
  * Vigil's 4 Qdrant collections (per CLAUDE.md).
- * All vectors are 768-dim (Google text-embedding-004) with cosine distance.
+ * All vectors are 384-dim (local @xenova/transformers all-MiniLM-L6-v2) with
+ * cosine distance.
  *
  * Each collection uses a NAMED vector matching its schema field so that the
  * intent of each embedding stays explicit end-to-end.
  */
 
-export const VECTOR_SIZE = 768;
+export const VECTOR_SIZE = 384;
 export const DISTANCE = "Cosine" as const;
 
 /** Collection name -> the named vector field it stores. */
@@ -44,6 +45,23 @@ export async function createAllCollections(): Promise<string[]> {
   }
 
   return created;
+}
+
+/**
+ * Drops and recreates all 4 collections. Use when the vector dimensionality
+ * changes (e.g. switching embedding models) — Qdrant cannot resize a collection
+ * in place, so it must be dropped and rebuilt, then reseeded.
+ */
+export async function recreateAllCollections(): Promise<void> {
+  for (const name of Object.keys(COLLECTIONS)) {
+    try {
+      await qdrant.deleteCollection(name);
+    } catch {
+      // Collection didn't exist — fine.
+    }
+  }
+  await createAllCollections();
+  await createPayloadIndexes();
 }
 
 /**

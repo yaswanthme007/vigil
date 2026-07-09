@@ -1,6 +1,7 @@
 import "./src/mastra/env";
 import express from "express";
 import next from "next";
+import { warmupEmbeddings } from "./src/mastra/embeddings";
 
 /**
  * Vigil standalone server for the live finale (Railway.app, not Vercel).
@@ -33,6 +34,13 @@ async function main() {
     console.log(`▲ Vigil is live on http://localhost:${port}`);
     console.log(`   health: http://localhost:${port}/api/status`);
   });
+
+  // Preload the local embedding model so the first incident on stage doesn't
+  // pay the cold-start cost. Non-blocking: the server is already accepting
+  // requests; this just warms the cache.
+  warmupEmbeddings()
+    .then(() => console.log("   ✓ embedding model warmed up"))
+    .catch((err) => console.warn("   embedding warmup failed:", err));
 }
 
 main().catch((err) => {

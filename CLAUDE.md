@@ -18,14 +18,16 @@ The app must always be runnable at end of every day. Never commit a broken build
 - Qdrant Cloud (@qdrant/js-client-rest) — REQUIRED by hackathon
 - Enkrypt AI — REQUIRED by hackathon
 - Groq llama-3.1-8b-instant (LLM via @ai-sdk/groq provider)
-- Google gemini-embedding-001, truncated to 768-dim (embeddings for Qdrant) — Gemini used for embeddings only
-- Deploy: Vercel (frontend) + Qdrant Cloud (DB)
+- Local embeddings: @xenova/transformers all-MiniLM-L6-v2, 384-dim (runs in-process,
+  no API key/quota/network at request time — removes the last external runtime dependency).
+  Gemini (gemini-embedding-001 @ 768-dim) is the documented fallback path only.
+- Deploy: Railway (persistent Node process — engine keeps in-memory state) + Qdrant Cloud (DB)
 
 ## Environment variables (.env.local)
 QDRANT_URL=
 QDRANT_API_KEY=
 GROQ_API_KEY=          # LLM (Groq llama-3.1-8b-instant)
-GEMINI_API_KEY=        # embeddings only (text-embedding-004)
+# GEMINI_API_KEY=      # OPTIONAL fallback only — embeddings are local now (no key needed)
 ENKRYPT_API_KEY=
 
 ## Repo structure
@@ -39,7 +41,7 @@ vigil/
 │   │   ├── agent.ts                    # vigilAgent (Groq) — own module to avoid import cycle
 │   │   ├── types.ts                    # Zod schemas + types for all 8 workflow steps
 │   │   ├── ids.ts                      # stableId() — deterministic UUIDs for idempotent upserts
-│   │   ├── embeddings.ts               # Gemini embeddings (gemini-embedding-001 @ 768-dim)
+│   │   ├── embeddings.ts               # Local embeddings (@xenova/transformers all-MiniLM-L6-v2 @ 384-dim)
 │   │   ├── scenarios.ts               # 3 hardcoded demo scenarios (A safe / B destructive / C variant)
 │   │   ├── workflows/
 │   │   │   └── incidentResponse.ts     # 8-step Mastra workflow + pure step functions
@@ -88,7 +90,7 @@ vigil/
 7. Human Approval — Mastra suspend/resume, engineer approves via dashboard
 8. Generate Post-Mortem — write to postmortems + UPSERT resolved incident → incidents (flywheel)
 
-## Qdrant collections (vector dim 768, cosine distance)
+## Qdrant collections (vector dim 384, cosine distance)
 incidents:
   - summary_embedding (vector)
   - summary, services_affected[], symptoms[], root_cause_category
