@@ -1,3 +1,33 @@
+"use client";
+
+import { useEffect, useRef } from "react";
+
+/** The flywheel: when a post-mortem saves, the count rolls 25 → 26. Rolls only
+ *  on a genuine increment from an established value — the first load and any
+ *  reset snap silently, so nothing counts up on page open. */
+function MemoryCounter({ value }: { value: number }) {
+  const prevRef = useRef<number | null>(null);
+  const prev = prevRef.current;
+  const rolling = prev !== null && prev > 0 && value > prev;
+
+  useEffect(() => {
+    prevRef.current = value;
+  }, [value]);
+
+  return (
+    <span className="inline-block h-[1.2em] overflow-hidden align-middle leading-[1.2em]">
+      <span
+        key={value}
+        className={`block font-mono text-sm font-semibold tabular-nums leading-[1.2em] text-emerald-400/90 ${
+          rolling ? "animate-roll" : ""
+        }`}
+      >
+        {value}
+      </span>
+    </span>
+  );
+}
+
 export function Header({ memoryCount }: { memoryCount: number }) {
   return (
     <header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.08] pb-5">
@@ -24,9 +54,7 @@ export function Header({ memoryCount }: { memoryCount: number }) {
 
         <div className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5">
           <span className="text-xs text-white/45">Incidents in memory</span>
-          <span className="font-mono text-sm font-semibold tabular-nums text-emerald-400/90">
-            {memoryCount}
-          </span>
+          <MemoryCounter value={memoryCount} />
         </div>
       </div>
     </header>
