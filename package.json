@@ -7,7 +7,7 @@
     "build": "next build",
     "build:full": "next build",
     "start": "next start",
-    "start:server": "npx tsx server.ts",
+    "start:server": "tsx server.ts",
     "lint": "eslint",
     "test:setup": "npx tsx scripts/test-setup.ts",
     "test:search": "npx tsx scripts/test-search.ts",
@@ -28,6 +28,7 @@
     "next": "16.2.10",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "tsx": "^4.23.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
