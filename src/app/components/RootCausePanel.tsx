@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Card, ConfidenceBar, EnkryptBadge } from "./ui";
 import type { RunState } from "./types";
-import type { RootCauseHypothesis } from "@/mastra/types";
+import type { RootCauseHypothesis, LogChunk, SimilarIncident } from "@/mastra/types";
 
 export function RootCausePanel({ run }: { run: RunState }) {
   const hypotheses = run.hypotheses ?? [];
@@ -48,6 +48,17 @@ export function RootCausePanel({ run }: { run: RunState }) {
   );
 }
 
+/** Resolve a citation id to its backing evidence. */
+function resolve(id: string, run: RunState): {
+  chunk?: LogChunk;
+  incident?: SimilarIncident;
+} {
+  return {
+    chunk: run.chunks?.find((c) => c.ref === id),
+    incident: run.similarIncidents?.find((s) => s.incident_id === id),
+  };
+}
+
 function HypothesisRow({
   rank,
   hypothesis,
@@ -59,11 +70,14 @@ function HypothesisRow({
   run: RunState;
   grounded: boolean;
 }) {
+  // Which citation, if any, is expanded inline beneath this hypothesis.
+  const [openId, setOpenId] = useState<string | null>(null);
+
   return (
     <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-2">
-          <span className="mt-0.5 font-mono text-xs font-bold text-white/40">
+          <span className="mt-0.5 font-mono text-xs font-bold tabular-nums text-white/40">
             #{rank}
           </span>
           <div>
@@ -79,66 +93,133 @@ function HypothesisRow({
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
         <ConfidenceBar value={hypothesis.confidence} />
         <div className="flex flex-wrap gap-1.5">
-          {hypothesis.evidence_ids.map((id) => (
-            <Citation key={id} id={id} run={run} />
-          ))}
+          {hypothesis.evidence_ids.map((id) => {
+            const { chunk, incident } = resolve(id, run);
+            const resolvable = Boolean(chunk || incident);
+            return (
+              <CitationChip
+                key={id}
+                id={id}
+                resolvable={resolvable}
+                open={openId === id}
+                onToggle={() =>
+                  setOpenId((cur) => (cur === id ? null : id))
+                }
+              />
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Inline evidence — grid-rows 0fr→1fr expands smoothly and reflows the
+          card without a jump. Collapsed content is fully clipped. */}
+      <div
+        className={`grid transition-[grid-template-rows] duration-200 ease-out ${
+          openId ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+        }`}
+      >
+        <div className="overflow-hidden">
+          {openId && <Evidence id={openId} run={run} />}
         </div>
       </div>
     </div>
   );
 }
 
-function Citation({ id, run }: { id: string; run: RunState }) {
-  const [open, setOpen] = useState(false);
+function CitationChip({
+  id,
+  resolvable,
+  open,
+  onToggle,
+}: {
+  id: string;
+  resolvable: boolean;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      onClick={() => resolvable && onToggle()}
+      aria-expanded={open}
+      title={resolvable ? "Show the evidence" : "Evidence unavailable"}
+      className={`rounded border px-1.5 py-0.5 font-mono text-[11px] transition-colors duration-150 ease-out ${
+        !resolvable
+          ? "cursor-default border-white/10 bg-white/5 text-white/40"
+          : open
+            ? "border-emerald-400/60 bg-emerald-500/25 text-emerald-100"
+            : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
+      }`}
+    >
+      {id}
+    </button>
+  );
+}
 
-  const chunk = run.chunks?.find((c) => c.ref === id);
-  const incident = run.similarIncidents?.find((s) => s.incident_id === id);
-  const resolvable = Boolean(chunk || incident);
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+/** The actual grounding evidence behind a citation — proves "grounded" is real. */
+function Evidence({ id, run }: { id: string; run: RunState }) {
+  const { chunk, incident } = resolve(id, run);
 
   return (
-    <span className="relative">
-      <button
-        onClick={() => resolvable && setOpen((v) => !v)}
-        className={`rounded border px-1.5 py-0.5 font-mono text-[11px] transition ${
-          resolvable
-            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
-            : "border-white/10 bg-white/5 text-white/40"
-        }`}
-        title={resolvable ? "Click to view evidence" : "Evidence unavailable"}
-      >
-        {id}
-      </button>
-
-      {open && (
-        <div className="absolute right-0 z-10 mt-1 w-80 rounded-lg border border-white/15 bg-[#0d0f15] p-3 text-left shadow-xl shadow-black/50">
-          {chunk && (
-            <>
-              <p className="mb-1 text-[11px] uppercase tracking-wide text-emerald-400/70">
-                Log chunk · {chunk.service ?? "unknown"}
-              </p>
-              <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-white/70">
-                {chunk.text}
-              </pre>
-            </>
-          )}
-          {incident && (
-            <>
-              <p className="mb-1 text-[11px] uppercase tracking-wide text-emerald-400/70">
-                Past incident · {incident.incident_id} ·{" "}
-                {(incident.score * 100).toFixed(0)}% match
-              </p>
-              <p className="text-[12px] text-white/80">{incident.summary}</p>
-              <p className="mt-1.5 text-[11px] text-white/50">
-                Fix: {incident.remediation_applied}
-              </p>
-              <p className="mt-1 text-[11px] text-white/40">
-                Worked: {incident.remediation_worked ? "yes" : "no"} · MTTR{" "}
-                {incident.mttr_minutes}m
-              </p>
-            </>
-          )}
-        </div>
+    <div className="mt-3 rounded-lg border border-white/10 bg-black/30 p-3">
+      {chunk && (
+        <>
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <span className="font-mono text-[11px] uppercase tracking-wide text-emerald-400/70">
+              Log evidence · {chunk.service ?? "unknown"}
+            </span>
+            {chunk.timestamp_start && (
+              <span className="font-mono text-[10px] tabular-nums text-white/40">
+                {chunk.timestamp_start}
+              </span>
+            )}
+          </div>
+          <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-white/70">
+            {chunk.text}
+          </pre>
+        </>
       )}
-    </span>
+
+      {incident && (
+        <>
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <span className="font-mono text-[11px] uppercase tracking-wide text-emerald-400/70">
+              Past incident · {incident.incident_id}
+            </span>
+            <span className="font-mono text-[10px] tabular-nums text-white/40">
+              {formatDate(incident.created_at)} · {(incident.score * 100).toFixed(0)}% match
+            </span>
+          </div>
+          <p className="text-[12px] leading-relaxed text-white/80">
+            {incident.summary}
+          </p>
+          <div className="mt-2 rounded-md border border-emerald-500/20 bg-emerald-500/[0.06] px-2.5 py-1.5">
+            <p className="font-mono text-[10px] uppercase tracking-wide text-emerald-400/70">
+              What fixed it
+            </p>
+            <p className="mt-0.5 text-[12px] text-white/80">
+              {incident.remediation_applied}
+            </p>
+            <p className="mt-1 font-mono text-[10px] tabular-nums text-white/45">
+              {incident.remediation_worked ? "resolved" : "did not resolve"} · MTTR{" "}
+              {incident.mttr_minutes}m · {incident.severity}
+            </p>
+          </div>
+        </>
+      )}
+
+      {!chunk && !incident && (
+        <p className="text-[12px] text-white/40">Evidence unavailable.</p>
+      )}
+    </div>
   );
 }
