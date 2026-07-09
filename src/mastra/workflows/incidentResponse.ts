@@ -859,12 +859,20 @@ export const proposeRemediationStep = createStep({
     "Draft a runbook-grounded remediation plan and estimate its blast radius.",
   inputSchema: groundingGateOutputSchema,
   outputSchema: remediationPlanSchema,
-  execute: async ({ inputData, getStepResult }) => {
+  execute: async ({ inputData, getStepResult, getInitData }) => {
     const retrieval = getStepResult(retrieveStep);
+    // Honour the demo override (Scenario B) threaded through the workflow input,
+    // so the deterministic destructive plan still reaches the Safety Gate.
+    const init = getInitData() as {
+      overrideSteps?: string[];
+      overrideRollback?: string;
+    };
     return proposeRemediation({
       hypotheses: inputData.hypotheses,
       matchingRunbooks: retrieval.matchingRunbooks,
       signature: retrieval.signature,
+      overrideSteps: init?.overrideSteps,
+      overrideRollback: init?.overrideRollback,
     });
   },
 });

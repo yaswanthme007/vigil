@@ -70,7 +70,7 @@ async function testScenarioA() {
   console.log("  memory before:", before);
 
   const { input, overrideSteps, overrideRollback } = inputFor("A");
-  const started = startRun(input, {
+  const started = await startRun(input, {
     scenario: "A",
     overrideSteps,
     overrideRollback,
@@ -108,7 +108,7 @@ async function testScenarioB() {
   console.log("\n=== Scenario B — destructive remediation is structurally unapprovable ===");
   const memBefore = await getMemoryCount();
   const { input, overrideSteps, overrideRollback } = inputFor("B");
-  const started = startRun(input, {
+  const started = await startRun(input, {
     scenario: "B",
     overrideSteps,
     overrideRollback,

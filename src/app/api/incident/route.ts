@@ -34,7 +34,7 @@ export async function POST(req: Request) {
         alert: { title: s.title, service: s.service, severity: s.severity },
         rawLogs: s.rawLogs,
       };
-      const run = startRun(input, {
+      const run = await startRun(input, {
         scenario: s.key,
         overrideSteps: s.remediationOverride,
         overrideRollback: s.remediationRollback,
@@ -61,7 +61,7 @@ export async function POST(req: Request) {
       },
       rawLogs: body.logs,
     };
-    const run = startRun(input, { scenario: null });
+    const run = await startRun(input, { scenario: null });
     return NextResponse.json({
       runId: run.runId,
       incidentId: run.incidentId,

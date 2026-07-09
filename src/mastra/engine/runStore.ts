@@ -1,15 +1,7 @@
 import "../env";
 import { randomUUID } from "crypto";
 import { qdrant } from "../qdrant/client";
-import {
-  ingestAndDetect,
-  retrieveSimilar,
-  groundedRootCause,
-  groundingGate,
-  proposeRemediation,
-  safetyGate,
-  generatePostmortem,
-} from "../workflows/incidentResponse";
+import { mastra } from "../index";
 import type {
   IncidentInput,
   IncidentSignature,
@@ -24,13 +16,17 @@ import type {
 } from "../types";
 
 /**
- * In-memory run engine that drives the incident-response pipeline for the live
- * dashboard. It calls the SAME pure step functions as the Mastra
- * incidentResponseWorkflow, but exposes per-step state so the UI can poll and
- * render progress, and pauses at Human Approval until the engineer decides.
+ * Run engine for the live dashboard. This DRIVES the real Mastra
+ * `incidentResponseWorkflow` (createRunAsync → start → resume) and mirrors its
+ * per-step progress into a RunState the UI polls. Mastra `watch()` events give
+ * live step transitions and each step's output; the workflow suspends at the
+ * Human-Approval step (Mastra suspend/resume, backed by the InMemoryStore
+ * configured on the Mastra instance) and we resume it on the engineer's
+ * decision. The pure step functions still exist — the workflow's steps call
+ * them — but orchestration is now Mastra's, not hand-rolled.
  *
- * State is kept on globalThis so it survives Next.js dev hot-reloads within the
- * same server process.
+ * State (and the live Mastra run handles) live on globalThis so they survive
+ * Next.js dev hot-reloads within the single long-lived server process.
  */
 
 export type RunStatus =
@@ -92,16 +88,54 @@ const STEP_LABELS: Record<number, string> = {
   8: "Generate Post-Mortem",
 };
 
+/** Workflow step id → dashboard step number. */
+const STEP_NUM: Record<string, number> = {
+  "ingest-and-detect": 1,
+  "retrieve-similar": 2,
+  "grounded-root-cause": 3,
+  "enkrypt-grounding-gate": 4,
+  "propose-remediation": 5,
+  "enkrypt-safety-gate": 6,
+  "human-approval": 7,
+  "generate-postmortem": 8,
+};
+
+/* ── Minimal structural types for the Mastra workflow run ─────────────────── */
+
+interface WfStepResult {
+  status?: string;
+  output?: unknown;
+  suspendPayload?: unknown;
+}
+interface WfResult {
+  status: "success" | "suspended" | "failed";
+  steps: Record<string, WfStepResult>;
+  suspended?: string[][];
+  result?: unknown;
+  error?: { message?: string } | Error;
+}
+interface WfRun {
+  runId: string;
+  watch(cb: (event: unknown) => void, type: "watch"): () => void;
+  start(args: { inputData: unknown }): Promise<WfResult>;
+  resume(args: { step: string | string[]; resumeData: unknown }): Promise<WfResult>;
+}
+
+interface Handle {
+  run: WfRun;
+  unwatch?: () => void;
+  allHypotheses: RootCauseHypothesis[]; // captured at root-cause for dropped calc
+}
+
 interface GlobalStore {
   runs: Map<string, RunState>;
-  /** overrides captured at start, consumed after approval for step 5. */
-  overrides: Map<string, { steps?: string[]; rollback?: string }>;
+  handles: Map<string, Handle>;
 }
 
 function store(): GlobalStore {
   const g = globalThis as unknown as { __vigil?: GlobalStore };
   if (!g.__vigil) {
-    g.__vigil = { runs: new Map(), overrides: new Map() };
+    g.__vigil = { runs: new Map(), handles: new Map() };
   }
   return g.__vigil;
 }
@@ -117,12 +151,70 @@ function elapsedMinutes(run: RunState): number {
   return Math.max(1, Math.round((Date.now() - run.startedAt) / 60000));
 }
 
-/** Kick off a run. Returns immediately; steps 1-6 execute in the background. */
-export function startRun(input: IncidentInput, opts: StartOptions = {}): RunState {
-  const runId = randomUUID();
+/** Copy a completed step's output into the RunState the UI renders. */
+function applyStepOutput(
+  run: RunState,
+  handle: Handle,
+  stepId: string,
+  output: unknown
+) {
+  if (!output || typeof output !== "object") return;
+  const o = output as Record<string, unknown>;
+  switch (stepId) {
+    case "ingest-and-detect": {
+      if (o.signature) {
+        run.signature = o.signature as IncidentSignature;
+        run.severity = (o.signature as IncidentSignature).severity;
+      }
+      if (o.chunks) run.chunks = o.chunks as LogChunk[];
+      break;
+    }
+    case "retrieve-similar": {
+      if (o.similarIncidents)
+        run.similarIncidents = o.similarIncidents as SimilarIncident[];
+      if (o.matchingRunbooks)
+        run.matchingRunbooks = o.matchingRunbooks as MatchingRunbook[];
+      break;
+    }
+    case "grounded-root-cause": {
+      if (Array.isArray(o.hypotheses))
+        handle.allHypotheses = o.hypotheses as RootCauseHypothesis[];
+      break;
+    }
+    case "enkrypt-grounding-gate": {
+      if (Array.isArray(o.hypotheses)) {
+        const grounded = o.hypotheses as RootCauseHypothesis[];
+        run.hypotheses = grounded;
+        run.droppedHypotheses = handle.allHypotheses.filter(
+          (h) => !grounded.includes(h)
+        );
+      }
+      break;
+    }
+    case "enkrypt-safety-gate": {
+      // The SafetyCheckedPlan (has .safety) — what the Remediation panel needs.
+      run.remediation = output as SafetyCheckedPlan;
+      break;
+    }
+    case "generate-postmortem": {
+      run.postmortem = output as PostmortemOutput;
+      break;
+    }
+  }
+}
+
+/** Kick off a run: create the Mastra workflow run and drive it. */
+export async function startRun(
+  input: IncidentInput,
+  opts: StartOptions = {}
+): Promise<RunState> {
   const incidentId =
     opts.incidentId ??
     `INC-LIVE-${(opts.scenario ?? "X").toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+
+  const wf = mastra.getWorkflow("incidentResponseWorkflow");
+  const wfRun = (await wf.createRunAsync()) as unknown as WfRun;
+  const runId = wfRun.runId ?? randomUUID();
 
   const run: RunState = {
     runId,
@@ -137,86 +229,112 @@ export function startRun(input: IncidentInput, opts: StartOptions = {}): RunStat
     updatedAt: Date.now(),
   };
 
+  const handle: Handle = { run: wfRun, allHypotheses: [] };
   store().runs.set(runId, run);
-  store().overrides.set(runId, {
-    steps: opts.overrideSteps,
-    rollback: opts.overrideRollback,
-  });
+  store().handles.set(runId, handle);
 
-  // Fire and forget — the dashboard polls getRun() for progress.
-  void executePipeline(runId, { ...input, incidentId }).catch((err) => {
-    const r = store().runs.get(runId);
-    if (r) {
-      r.status = "error";
-      r.error = err instanceof Error ? err.message : String(err);
-      r.updatedAt = Date.now();
+  // Live progress: advance the step and capture each step's output as the
+  // workflow runs. Status is managed at the await boundaries below, not here,
+  // so progress never fights the terminal transitions.
+  handle.unwatch = wfRun.watch((event: unknown) => {
+    const e = event as {
+      payload?: { currentStep?: { id?: string; status?: string; output?: unknown } };
+    };
+    const cs = e.payload?.currentStep;
+    if (!cs?.id) return;
+    const n = STEP_NUM[cs.id];
+    if (!n) return;
+    if (n >= run.step && run.status === "running") {
+      run.step = n;
+      run.stepLabel = STEP_LABELS[n] ?? run.stepLabel;
+      run.updatedAt = Date.now();
     }
-    console.error(`[engine] run ${runId} failed:`, err);
-  });
+    if (cs.status === "success") applyStepOutput(run, handle, cs.id, cs.output);
+  }, "watch");
+
+  // Fire-and-forget: the workflow runs to the approval suspension; the dashboard
+  // polls getRun() meanwhile.
+  void wfRun
+    .start({
+      inputData: {
+        incidentId,
+        alert: input.alert,
+        rawLogs: input.rawLogs,
+        overrideSteps: opts.overrideSteps,
+        overrideRollback: opts.overrideRollback,
+      },
+    })
+    .then((result) => onStartResolved(runId, result))
+    .catch((err) => {
+      const r = store().runs.get(runId);
+      if (r) {
+        r.status = "error";
+        r.error = err instanceof Error ? err.message : String(err);
+        r.updatedAt = Date.now();
+      }
+      console.error(`[engine] workflow ${runId} start failed:`, err);
+    });
 
   return run;
 }
 
-/** Steps 1-6, then pause at Human Approval (step 7). */
-async function executePipeline(runId: string, input: IncidentInput) {
-  const run = store().runs.get(runId)!;
+/** Reconcile RunState with the WorkflowResult once start() settles. */
+function onStartResolved(runId: string, result: WfResult) {
+  const run = store().runs.get(runId);
+  const handle = store().handles.get(runId);
+  if (!run || !handle) return;
 
-  touch(run, 1, "running");
-  const ingest = await ingestAndDetect(input);
-  run.signature = ingest.signature;
-  run.chunks = ingest.chunks;
-  run.severity = ingest.signature.severity;
-
-  touch(run, 2, "running");
-  const retrieval = await retrieveSimilar(ingest);
-  run.similarIncidents = retrieval.similarIncidents;
-  run.matchingRunbooks = retrieval.matchingRunbooks;
-
-  touch(run, 3, "running");
-  const rc = await groundedRootCause(retrieval);
-
-  touch(run, 4, "running");
-  const gate = await groundingGate(rc.hypotheses);
-  run.hypotheses = gate.hypotheses;
-  run.droppedHypotheses = rc.hypotheses.filter(
-    (h) => !gate.hypotheses.includes(h)
-  );
-
-  if (gate.escalate) {
-    touch(run, 4, "escalated");
-    return; // No grounded root cause — escalate to a human, stop here.
+  // Backfill any outputs (belt and braces — watch already streamed most).
+  for (const [stepId, sr] of Object.entries(result.steps ?? {})) {
+    if (sr?.status === "success" && sr.output !== undefined) {
+      applyStepOutput(run, handle, stepId, sr.output);
+    }
   }
 
-  touch(run, 5, "running");
-  const override = store().overrides.get(runId);
-  const plan = await proposeRemediation({
-    hypotheses: gate.hypotheses,
-    matchingRunbooks: retrieval.matchingRunbooks,
-    signature: retrieval.signature,
-    overrideSteps: override?.steps,
-    overrideRollback: override?.rollback,
-  });
+  if (result.status === "failed") {
+    const msg =
+      (result.error as { message?: string })?.message ?? "workflow failed";
+    run.error = msg;
+    touch(run, run.step, "error");
+    handle.unwatch?.();
+    return;
+  }
 
-  touch(run, 6, "running");
-  const checked = await safetyGate(plan);
-  run.remediation = checked;
+  if (result.status === "suspended") {
+    const suspendedStep = result.suspended?.[0]?.[0];
+    if (suspendedStep === "enkrypt-grounding-gate") {
+      // No grounded root cause — escalate to a human (Vigil will not guess).
+      run.hypotheses = [];
+      run.droppedHypotheses = handle.allHypotheses;
+      touch(run, 4, "escalated");
+      handle.unwatch?.();
+      return;
+    }
+    // Suspended at Human Approval. If the Safety Gate flagged the plan unsafe,
+    // it is structurally unapprovable → 'blocked'; otherwise 'awaiting_approval'.
+    const unsafe = run.remediation?.safety.safe === false;
+    touch(run, 7, unsafe ? "blocked" : "awaiting_approval");
+    return;
+  }
 
-  // Step 7 — hand to the engineer. If the Safety Gate flagged the plan unsafe,
-  // it is structurally UNAPPROVABLE: the run enters 'blocked' (the engineer may
-  // only reject or escalate), never 'awaiting_approval'.
-  touch(run, 7, checked.safety.safe ? "awaiting_approval" : "blocked");
+  // Unexpected: workflow completed on first start (no approval step). Treat as
+  // completed if we got a post-mortem.
+  if (result.status === "success") {
+    run.postmortem = result.result as PostmortemOutput;
+    touch(run, 8, "completed");
+    handle.unwatch?.();
+  }
 }
 
-/** Resume a suspended run with the engineer's decision (drives step 8). */
+/** Resume the suspended run with the engineer's decision (drives step 8). */
 export function submitApproval(
   runId: string,
   decision: ApprovalDecision
 ): ApprovalResult {
   const run = store().runs.get(runId);
-  if (!run) return { run: null, refused: false };
+  const handle = store().handles.get(runId);
+  if (!run || !handle) return { run: run ?? null, refused: false };
 
-  // A decision is only actionable while the run is paused at Human Approval,
-  // whether it passed the Safety Gate (awaiting_approval) or was blocked.
   if (run.status !== "awaiting_approval" && run.status !== "blocked") {
     return { run, refused: false };
   }
@@ -241,30 +359,37 @@ export function submitApproval(
   run.mttrMinutes = elapsedMinutes(run);
 
   if (!decision.approved) {
+    // Reject: freeze the mirror at 'rejected' immediately, then resume the
+    // workflow in the background so its state settles (the post-mortem step
+    // returns a rejection record and does NOT upsert the incident).
+    handle.unwatch?.();
     touch(run, 7, "rejected");
+    void resumeWorkflow(handle, decision).catch((err) =>
+      console.error(`[engine] resume(reject) ${runId} failed:`, err)
+    );
     return { run, refused: false };
   }
 
+  // Approve (and safe): resume; the post-mortem step writes the report and
+  // upserts the resolved incident (the flywheel).
   touch(run, 8, "generating_postmortem");
-
-  // Generate the post-mortem in the background; polling reveals it when ready.
   void (async () => {
     try {
-      const pm = await generatePostmortem({
-        signature: run.signature!,
-        hypotheses: run.hypotheses ?? [],
-        plan: run.remediation!,
-        decision,
-        similarIncidents: run.similarIncidents,
-        mttrMinutes: run.mttrMinutes,
-      });
-      run.postmortem = pm;
-      touch(run, 8, "completed");
+      const result = await resumeWorkflow(handle, decision);
+      if (result.status === "success") {
+        run.postmortem = result.result as PostmortemOutput;
+        touch(run, 8, "completed");
+      } else if (result.status === "failed") {
+        run.error =
+          (result.error as { message?: string })?.message ?? "postmortem failed";
+        touch(run, 8, "error");
+      }
+      handle.unwatch?.();
     } catch (err) {
       run.status = "error";
       run.error = err instanceof Error ? err.message : String(err);
       run.updatedAt = Date.now();
-      console.error(`[engine] postmortem for ${runId} failed:`, err);
+      console.error(`[engine] resume(approve) ${runId} failed:`, err);
     }
   })();
 
@@ -280,18 +405,34 @@ export function escalateRun(
   engineerId = "on-call-engineer"
 ): RunState | null {
   const run = store().runs.get(runId);
+  const handle = store().handles.get(runId);
   if (!run) return null;
   if (run.status !== "awaiting_approval" && run.status !== "blocked") return run;
 
-  run.approval = {
+  const decision: ApprovalDecision = {
     approved: false,
     rejection_reason:
       "Escalated to a human engineer — Safety Gate blocked a destructive remediation.",
     engineer_id: engineerId,
   };
+  run.approval = decision;
   run.mttrMinutes = elapsedMinutes(run);
+  handle?.unwatch?.();
   touch(run, 7, "escalated");
+  if (handle) {
+    void resumeWorkflow(handle, decision).catch((err) =>
+      console.error(`[engine] resume(escalate) ${runId} failed:`, err)
+    );
+  }
   return run;
+}
+
+/** Resume the underlying Mastra workflow at the Human-Approval step. */
+function resumeWorkflow(
+  handle: Handle,
+  decision: ApprovalDecision
+): Promise<WfResult> {
+  return handle.run.resume({ step: "human-approval", resumeData: decision });
 }
 
 export function getRun(runId: string): RunState | null {

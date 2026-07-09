@@ -29,6 +29,16 @@ export const incidentInputSchema = z.object({
     .describe("Stable incident id; generated if omitted."),
   alert: alertSchema,
   rawLogs: z.string().describe("Raw, unstructured log text for the incident."),
+  overrideSteps: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "Preset remediation steps (demo scenarios) to skip the LLM and guarantee deterministic Safety-Gate behaviour."
+    ),
+  overrideRollback: z
+    .string()
+    .optional()
+    .describe("Preset rollback text paired with overrideSteps."),
 });
 export type IncidentInput = z.infer<typeof incidentInputSchema>;
 
