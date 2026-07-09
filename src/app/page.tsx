@@ -8,6 +8,7 @@ import { IncidentPanel } from "./components/IncidentPanel";
 import { RootCausePanel } from "./components/RootCausePanel";
 import { RemediationPanel } from "./components/RemediationPanel";
 import { PostMortemView } from "./components/PostMortemView";
+import { blockedByText } from "./components/safety";
 import type { RunState, StatusResponse } from "./components/types";
 
 export default function Dashboard() {
@@ -153,9 +154,8 @@ export default function Dashboard() {
             )}
 
             {run.status === "blocked" && (
-              <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
-                The Safety Gate blocked this remediation as destructive. It
-                cannot be approved — reject or escalate to a human.
+              <div className="rounded-xl border border-red-500/35 bg-red-500/[0.08] px-4 py-3 text-sm text-red-200">
+                {blockedByText(run.remediation?.safety.reasons ?? [])}
               </div>
             )}
 
