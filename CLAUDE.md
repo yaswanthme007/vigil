@@ -113,7 +113,7 @@ postmortems:
 ## Enkrypt guardrails (src/mastra/guardrails/enkrypt.ts)
 Export two functions:
 - validateGrounding(hypotheses[]) → returns only hypotheses backed by cited evidence
-- checkDestructiveAction(remediation) → {safe: bool, reasons: string[]}
+- checkDestructiveAction(remediation) → {safe: bool, reasons: string[], blast_radius: number}
   Blocks: data deletion, DROP TABLE/collection, scale-to-zero, disable-auth,
   modify production secrets, any action with no rollback path
 

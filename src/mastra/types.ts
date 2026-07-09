@@ -134,3 +134,52 @@ export const rootCauseOutputSchema = z.object({
   hypotheses: z.array(rootCauseHypothesisSchema),
 });
 export type RootCauseOutput = z.infer<typeof rootCauseOutputSchema>;
+
+/* ── Step 4: Enkrypt Grounding Gate ──────────────────────────────────────── */
+
+/**
+ * Step 4 output. `hypotheses` are only those that passed grounding validation.
+ * When none survive, `escalate` is true and the workflow suspends for a human.
+ */
+export const groundingGateOutputSchema = z.object({
+  hypotheses: z.array(rootCauseHypothesisSchema),
+  escalate: z.boolean(),
+});
+export type GroundingGateOutput = z.infer<typeof groundingGateOutputSchema>;
+
+/* ── Step 5: Propose Remediation ─────────────────────────────────────────── */
+
+/** A drafted, runbook-grounded remediation plan with a blast-radius estimate. */
+export const remediationPlanSchema = z.object({
+  steps: z.array(z.string()).describe("Ordered remediation actions."),
+  blast_radius_score: z
+    .number()
+    .min(0)
+    .max(100)
+    .describe("0-100 estimate of impact if this plan is applied."),
+  affected_services: z.array(z.string()),
+  rollback_procedure: z
+    .string()
+    .describe("How to undo the plan if it goes wrong."),
+  requires_approval: z.boolean(),
+  source_runbook_ids: z
+    .array(z.string())
+    .describe("Runbook ids this plan was drafted from (grounding)."),
+});
+export type RemediationPlan = z.infer<typeof remediationPlanSchema>;
+
+/* ── Step 6: Enkrypt Safety Gate ─────────────────────────────────────────── */
+
+/** Result of the destructive-action check performed by the Safety Gate. */
+export const safetyStatusSchema = z.object({
+  safe: z.boolean(),
+  reasons: z.array(z.string()),
+  blast_radius: z.number().min(0).max(100),
+});
+export type SafetyStatus = z.infer<typeof safetyStatusSchema>;
+
+/** Step 6 output: the remediation plan with the Safety Gate verdict attached. */
+export const safetyCheckedPlanSchema = remediationPlanSchema.extend({
+  safety: safetyStatusSchema,
+});
+export type SafetyCheckedPlan = z.infer<typeof safetyCheckedPlanSchema>;

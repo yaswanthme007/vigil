@@ -10,6 +10,7 @@
     "test:setup": "npx tsx scripts/test-setup.ts",
     "test:search": "npx tsx scripts/test-search.ts",
     "test:workflow": "npx tsx scripts/test-workflow.ts",
+    "test:guardrails": "npx tsx scripts/test-guardrails.ts",
     "seed": "npx tsx src/mastra/qdrant/seed.ts"
   },
   "dependencies": {

@@ -1,4 +1,5 @@
 import "../env";
+import { z } from "zod";
 import { createWorkflow, createStep } from "@mastra/core/workflows";
 import { qdrant } from "../qdrant/client";
 import { createAllCollections } from "../qdrant/collections";
@@ -7,15 +8,25 @@ import { stableId } from "../ids";
 import { vigilAgent } from "../agent";
 import { searchIncidents } from "../tools/searchIncidents";
 import { searchRunbooks } from "../tools/searchRunbooks";
+import { estimateBlastRadius } from "../tools/estimateBlastRadius";
+import { validateGrounding, checkDestructiveAction } from "../guardrails/enkrypt";
 import {
   incidentInputSchema,
   ingestOutputSchema,
   retrievalOutputSchema,
   rootCauseOutputSchema,
+  groundingGateOutputSchema,
+  remediationPlanSchema,
+  safetyCheckedPlanSchema,
   type IncidentInput,
   type IngestOutput,
   type RetrievalOutput,
   type RootCauseOutput,
+  type GroundingGateOutput,
+  type RemediationPlan,
+  type SafetyCheckedPlan,
+  type SimilarIncident,
+  type MatchingRunbook,
   type LogChunk,
   type IncidentSignature,
   type Severity,
@@ -44,6 +55,19 @@ const runIncidentSearch = searchIncidents as unknown as ToolLike<
 const runRunbookSearch = searchRunbooks as unknown as ToolLike<
   { query: string; services?: string[] },
   { results: RetrievalOutput["matchingRunbooks"] }
+>;
+const runBlastRadius = estimateBlastRadius as unknown as ToolLike<
+  {
+    remediation: string;
+    affected_services?: string[];
+    risk_level?: "low" | "medium" | "high" | "critical";
+  },
+  {
+    score: number;
+    affected_services: string[];
+    reversible: boolean;
+    reasons: string[];
+  }
 >;
 
 /* ── Log parsing helpers (deterministic anomaly detection) ────────────────── */
@@ -386,6 +410,155 @@ function sanitizeHypotheses(
   return out.slice(0, 3);
 }
 
+/* ── Step 4: Enkrypt Grounding Gate ──────────────────────────────────────── */
+
+export async function groundingGate(
+  hypotheses: RootCauseHypothesis[]
+): Promise<GroundingGateOutput> {
+  const grounded = await validateGrounding(hypotheses);
+  return { hypotheses: grounded, escalate: grounded.length === 0 };
+}
+
+/* ── Step 5: Propose Remediation ─────────────────────────────────────────── */
+
+export async function proposeRemediation(args: {
+  hypotheses: RootCauseHypothesis[];
+  matchingRunbooks: MatchingRunbook[];
+  signature: IncidentSignature;
+}): Promise<RemediationPlan> {
+  const { hypotheses, matchingRunbooks, signature } = args;
+  const topRunbook = matchingRunbooks[0];
+
+  const runbookContext = matchingRunbooks
+    .map(
+      (r) =>
+        `[${r.runbook_id}] ${r.title} (risk=${r.risk_level}, requires_approval=${r.requires_approval})\n  steps: ${r.steps.join(" | ")}`
+    )
+    .join("\n");
+
+  const hypothesisContext = hypotheses
+    .map((h) => `- (${h.confidence.toFixed(2)}) ${h.explanation}`)
+    .join("\n");
+
+  const prompt = `You are Vigil's remediation planner. Draft a concrete remediation plan for the incident, grounded in the provided runbooks.
+
+TOP ROOT-CAUSE HYPOTHESES:
+${hypothesisContext || "(none)"}
+
+AFFECTED SERVICES: ${signature.affected_services.join(", ")}
+
+AVAILABLE RUNBOOKS:
+${runbookContext || "(none)"}
+
+RULES:
+- Base the plan on the runbook steps above; do not invent unrelated actions.
+- Prefer the safest procedure that resolves the root cause.
+- Provide a clear rollback_procedure that undoes the plan.
+
+Respond with ONLY a JSON object in this exact shape:
+{"steps": ["...", "..."], "rollback_procedure": "..."}`;
+
+  let steps: string[] = [];
+  let rollback_procedure = "";
+  try {
+    const res = await vigilAgent.generate(prompt);
+    const text =
+      typeof res === "string" ? res : ((res as { text?: string }).text ?? "");
+    const parsed = extractJsonObject(text) as {
+      steps?: unknown;
+      rollback_procedure?: unknown;
+    } | null;
+    if (parsed) {
+      if (Array.isArray(parsed.steps)) {
+        steps = parsed.steps.map(String).filter((s) => s.trim().length > 0);
+      }
+      if (typeof parsed.rollback_procedure === "string") {
+        rollback_procedure = parsed.rollback_procedure;
+      }
+    }
+  } catch (err) {
+    console.error("[proposeRemediation] LLM call failed:", err);
+  }
+
+  // Fallback: use the top runbook's steps verbatim so we never emit an empty plan.
+  if (steps.length === 0 && topRunbook) {
+    steps = [...topRunbook.steps];
+  }
+  if (!rollback_procedure) {
+    rollback_procedure = topRunbook
+      ? `Revert the changes from runbook ${topRunbook.runbook_id} ("${topRunbook.title}") and restore the previous configuration.`
+      : "No rollback procedure available — manual review required.";
+  }
+
+  const riskLevel = topRunbook?.risk_level as
+    | "low"
+    | "medium"
+    | "high"
+    | "critical"
+    | undefined;
+
+  const blast = await runBlastRadius.execute({
+    context: {
+      remediation: `${steps.join("\n")}\n${rollback_procedure}`,
+      affected_services: signature.affected_services,
+      risk_level:
+        riskLevel && ["low", "medium", "high", "critical"].includes(riskLevel)
+          ? riskLevel
+          : undefined,
+    },
+  });
+
+  const requires_approval = matchingRunbooks.some((r) => r.requires_approval);
+
+  return {
+    steps,
+    blast_radius_score: blast.score,
+    affected_services:
+      blast.affected_services.length > 0
+        ? blast.affected_services
+        : signature.affected_services,
+    rollback_procedure,
+    requires_approval,
+    source_runbook_ids: matchingRunbooks.map((r) => r.runbook_id),
+  };
+}
+
+/** Pull the first balanced JSON object out of a possibly noisy LLM response. */
+function extractJsonObject(text: string): unknown {
+  const cleaned = text.replace(/```json/gi, "").replace(/```/g, "");
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return null;
+  try {
+    return JSON.parse(cleaned.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
+/* ── Step 6: Enkrypt Safety Gate ─────────────────────────────────────────── */
+
+export async function safetyGate(
+  plan: RemediationPlan
+): Promise<SafetyCheckedPlan> {
+  const planText = `${plan.steps.join("\n")}\n${plan.rollback_procedure}`;
+  const check = await checkDestructiveAction(planText);
+
+  // Force human approval when unsafe or when impact is meaningful (>= 40).
+  const requires_approval =
+    plan.requires_approval || !check.safe || plan.blast_radius_score >= 40;
+
+  return {
+    ...plan,
+    requires_approval,
+    safety: {
+      safe: check.safe,
+      reasons: check.reasons,
+      blast_radius: check.blast_radius,
+    },
+  };
+}
+
 /* ── Workflow assembly ───────────────────────────────────────────────────── */
 
 export const ingestStep = createStep({
@@ -412,14 +585,66 @@ export const rootCauseStep = createStep({
   execute: async ({ inputData }) => groundedRootCause(inputData),
 });
 
+export const groundingGateStep = createStep({
+  id: "enkrypt-grounding-gate",
+  description:
+    "Enkrypt Grounding Gate: keep only grounded hypotheses; escalate if none pass.",
+  inputSchema: rootCauseOutputSchema,
+  outputSchema: groundingGateOutputSchema,
+  suspendSchema: z.object({
+    escalate: z.literal(true),
+    reason: z.string(),
+  }),
+  execute: async ({ inputData, suspend }) => {
+    const result = await groundingGate(inputData.hypotheses);
+    if (result.escalate) {
+      // No grounded root cause — hand off to a human instead of guessing.
+      await suspend({
+        escalate: true,
+        reason:
+          "No root-cause hypothesis passed the Enkrypt Grounding Gate. Human investigation required.",
+      });
+    }
+    return result;
+  },
+});
+
+export const proposeRemediationStep = createStep({
+  id: "propose-remediation",
+  description:
+    "Draft a runbook-grounded remediation plan and estimate its blast radius.",
+  inputSchema: groundingGateOutputSchema,
+  outputSchema: remediationPlanSchema,
+  execute: async ({ inputData, getStepResult }) => {
+    const retrieval = getStepResult(retrieveStep);
+    return proposeRemediation({
+      hypotheses: inputData.hypotheses,
+      matchingRunbooks: retrieval.matchingRunbooks,
+      signature: retrieval.signature,
+    });
+  },
+});
+
+export const safetyGateStep = createStep({
+  id: "enkrypt-safety-gate",
+  description:
+    "Enkrypt Safety Gate: block destructive actions and force approval on risky plans.",
+  inputSchema: remediationPlanSchema,
+  outputSchema: safetyCheckedPlanSchema,
+  execute: async ({ inputData }) => safetyGate(inputData),
+});
+
 export const incidentResponseWorkflow = createWorkflow({
   id: "incident-response",
   inputSchema: incidentInputSchema,
-  outputSchema: rootCauseOutputSchema,
+  outputSchema: safetyCheckedPlanSchema,
 })
   .then(ingestStep)
   .then(retrieveStep)
   .then(rootCauseStep)
+  .then(groundingGateStep)
+  .then(proposeRemediationStep)
+  .then(safetyGateStep)
   .commit();
 
-export type { RootCauseOutput };
+export type { RootCauseOutput, RemediationPlan, SafetyCheckedPlan };
