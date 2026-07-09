@@ -209,9 +209,11 @@ function StatusPill({ run }: { run: RunState }) {
     error: { label: "Error", cls: NEUTRAL },
   };
   const s = map[run.status] ?? map.running;
+  // Awaiting a human reads as a held breath, not an alert.
+  const breath = run.status === "awaiting_approval" ? "animate-hold" : "";
   return (
     <span
-      className={`rounded-md border px-2.5 py-1 text-xs font-semibold tabular-nums ${s.cls}`}
+      className={`rounded-md border px-2.5 py-1 text-xs font-semibold tabular-nums ${s.cls} ${breath}`}
     >
       {s.label}
       {run.mttrMinutes && run.status === "completed"

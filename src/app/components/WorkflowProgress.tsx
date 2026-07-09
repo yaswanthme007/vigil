@@ -22,6 +22,9 @@ export function WorkflowProgress({ run }: { run: RunState }) {
     error: { cls: "bg-white/[0.06] text-white/55 border-white/12", glyph: "!" },
   };
 
+  // The run is suspended at Human Approval — the interface should visibly wait.
+  const waiting = run.status === "awaiting_approval";
+
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {STEPS.map((label, i) => {
@@ -37,20 +40,35 @@ export function WorkflowProgress({ run }: { run: RunState }) {
           : done
             ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
             : active
-              ? "bg-white/10 text-white border-white/30"
+              ? waiting
+                ? "bg-amber-500/12 text-amber-200 border-amber-500/35"
+                : "bg-white/10 text-white border-white/30"
               : "bg-white/[0.02] text-white/30 border-white/10";
+
+        // Completed steps settle in (staggered into a brief left-to-right wave);
+        // the step awaiting a human holds its breath.
+        const anim = done
+          ? "animate-settle"
+          : active && waiting
+            ? "animate-hold"
+            : "";
 
         return (
           <div
             key={label}
-            className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition-colors duration-150 ease-out ${color}`}
+            style={done ? { animationDelay: `${i * 35}ms` } : undefined}
+            className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition-colors duration-150 ease-out ${color} ${anim}`}
           >
             <span className="font-mono font-bold tabular-nums">
               {done ? "✓" : stop ? stop.glyph : n}
             </span>
             <span>{label}</span>
             {active && (
-              <span className="ml-0.5 h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
+              <span
+                className={`ml-0.5 h-1.5 w-1.5 rounded-full bg-current ${
+                  waiting ? "animate-hold" : "animate-breathe"
+                }`}
+              />
             )}
           </div>
         );

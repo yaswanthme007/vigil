@@ -44,6 +44,48 @@ pre,
   background: rgba(52, 211, 153, 0.25);
 }
 
+/* — Workflow motion: purposeful, not decorative —
+   settle: a completed step eases in as it lands.
+   breathe: the active step has a quiet pulse — an agent thinking, not a spinner.
+   hold: the "awaiting a human" state, slower and shallower — a held breath. */
+@keyframes vigil-settle {
+  from {
+    opacity: 0;
+    transform: translateY(2px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes vigil-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+@keyframes vigil-hold {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+.animate-settle {
+  animation: vigil-settle 0.18s ease-out both;
+}
+.animate-breathe {
+  animation: vigil-breathe 1.6s ease-in-out infinite;
+}
+.animate-hold {
+  animation: vigil-hold 2.6s ease-in-out infinite;
+}
+
 /* Motion is purposeful only. Honour the OS preference globally: strip every
    decorative animation and collapse transitions to near-instant. */
 @media (prefers-reduced-motion: reduce) {
