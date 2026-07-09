@@ -2,7 +2,12 @@
 
 import { useState } from "react";
 import { Card, BlastRadiusMeter, EnkryptBadge, ServiceBadge } from "./ui";
-import { parseReason, blockedByText, type ReasonSource } from "./safety";
+import {
+  parseReason,
+  blockedByText,
+  blockedSubtitle,
+  type ReasonSource,
+} from "./safety";
 import type { RunState } from "./types";
 
 /* — small line icons (no emoji) — */
@@ -135,7 +140,10 @@ export function RemediationPanel({
                   BLOCKED
                 </p>
                 <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.2em] text-red-300/55">
-                  Enkrypt Safety Gate
+                  Safety Gate
+                </p>
+                <p className="mt-0.5 font-mono text-[10px] tracking-wide text-red-300/40">
+                  {blockedSubtitle(plan.safety.reasons)}
                 </p>
               </div>
             </div>

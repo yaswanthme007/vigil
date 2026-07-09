@@ -37,6 +37,23 @@ export function blockedLead(reasons: string[]): string {
   return "The Safety Gate blocked this remediation.";
 }
 
+/** Seal subtitle naming the source(s) — never claims Enkrypt blocked something
+ *  its scan scored safe. The seal's title always reads "SAFETY GATE". */
+export function blockedSubtitle(reasons: string[]): string {
+  const sources = new Set(reasons.map((r) => parseReason(r).source));
+  const hasPolicy = sources.has("POLICY");
+  const hasEnkrypt = sources.has("ENKRYPT");
+
+  if (hasPolicy && hasEnkrypt) {
+    return "destructive-action policy + Enkrypt threat scan";
+  }
+  if (hasEnkrypt) {
+    return "Enkrypt threat scan";
+  }
+  // POLICY only, or an untagged reason, is Vigil's own rule.
+  return "destructive-action policy";
+}
+
 export const BLOCKED_TAIL =
   "It cannot be approved — reject or escalate to a human.";
 
