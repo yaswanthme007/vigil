@@ -1,33 +1,28 @@
 "use client";
 
+// Uniform, neutral command buttons — the outcome is never previewed by colour
+// (that would spoil the demo and, for the destructive case, misuse the reserved
+// red). The mono key chip makes each fast to target on stage.
 const BUTTONS = [
   {
     key: "A",
-    label: "Trigger: DB Pool Exhaustion",
-    sub: "Scenario A — safe fix, shows memory",
-    className:
-      "border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-200",
+    label: "DB Pool Exhaustion",
+    sub: "Safe fix · shows memory",
   },
   {
     key: "B",
-    label: "Trigger: Destructive Incident",
-    sub: "Scenario B — safety gate fires live",
-    className:
-      "border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-200",
+    label: "Destructive Incident",
+    sub: "Safety Gate fires live",
   },
   {
     key: "C",
-    label: "Trigger: Variant Incident",
-    sub: "Scenario C — faster, shows flywheel",
-    className:
-      "border-sky-500/30 bg-sky-500/10 hover:bg-sky-500/20 text-sky-200",
+    label: "Variant Incident",
+    sub: "Faster · shows flywheel",
   },
   {
     key: "D",
-    label: "Trigger: Prompt Injection Attempt",
-    sub: "Scenario D — Enkrypt threat scan blocks it",
-    className:
-      "border-fuchsia-500/30 bg-fuchsia-500/10 hover:bg-fuchsia-500/20 text-fuchsia-200",
+    label: "Prompt Injection Attempt",
+    sub: "Enkrypt threat scan blocks it",
   },
 ] as const;
 
@@ -45,10 +40,17 @@ export function DemoControlPanel({
           key={b.key}
           disabled={busy}
           onClick={() => onTrigger(b.key)}
-          className={`rounded-xl border px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-40 ${b.className}`}
+          className="group flex items-start gap-3 rounded-xl border border-white/[0.08] bg-white/[0.022] px-4 py-3 text-left transition-colors duration-150 ease-out hover:border-white/15 hover:bg-white/[0.05] disabled:cursor-not-allowed disabled:opacity-40"
         >
-          <div className="text-sm font-semibold">{b.label}</div>
-          <div className="mt-0.5 text-xs opacity-70">{b.sub}</div>
+          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] font-mono text-xs font-semibold text-white/50 transition-colors group-hover:text-white/80">
+            {b.key}
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm font-medium text-white/85">
+              {b.label}
+            </span>
+            <span className="mt-0.5 block text-xs text-white/40">{b.sub}</span>
+          </span>
         </button>
       ))}
     </div>

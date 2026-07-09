@@ -14,16 +14,16 @@ export function Card({
   accent?: string;
 }) {
   return (
-    <section className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
+    <section className="rounded-xl border border-white/[0.08] bg-white/[0.022] p-5">
       <div className="mb-4 flex items-center gap-2">
         {typeof step === "number" && (
-          <span className="flex h-6 w-6 items-center justify-center rounded-md bg-white/5 text-xs font-semibold text-white/50">
+          <span className="flex h-6 w-6 items-center justify-center rounded-md bg-white/[0.05] font-mono text-xs font-semibold tabular-nums text-white/45">
             {step}
           </span>
         )}
         <h2
-          className="text-sm font-semibold uppercase tracking-wider"
-          style={{ color: accent ?? "rgba(230,232,238,0.7)" }}
+          className="text-[13px] font-semibold uppercase tracking-wider"
+          style={{ color: accent ?? "rgba(230,232,238,0.65)" }}
         >
           {title}
         </h2>
@@ -33,17 +33,19 @@ export function Card({
   );
 }
 
+// Red is reserved exclusively for the BLOCKED state, so severity never uses it.
+// P1/P2 carry weight in amber (needs attention); P3/P4 sit neutral.
 const SEVERITY_STYLES: Record<Severity, string> = {
-  P1: "bg-red-500/15 text-red-300 border-red-500/30",
-  P2: "bg-orange-500/15 text-orange-300 border-orange-500/30",
-  P3: "bg-yellow-500/15 text-yellow-300 border-yellow-500/30",
-  P4: "bg-sky-500/15 text-sky-300 border-sky-500/30",
+  P1: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+  P2: "bg-amber-500/10 text-amber-200/90 border-amber-500/20",
+  P3: "bg-white/[0.04] text-white/60 border-white/10",
+  P4: "bg-white/[0.04] text-white/50 border-white/10",
 };
 
 export function SeverityBadge({ severity }: { severity: Severity }) {
   return (
     <span
-      className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-bold ${SEVERITY_STYLES[severity]}`}
+      className={`inline-flex items-center rounded-md border px-2 py-0.5 font-mono text-xs font-bold tabular-nums ${SEVERITY_STYLES[severity]}`}
     >
       {severity}
     </span>
@@ -58,40 +60,44 @@ export function ServiceBadge({ name }: { name: string }) {
   );
 }
 
-/** Confidence bar 0-1. */
+/** Confidence bar 0-1. Green when strong, amber otherwise — never red. */
 export function ConfidenceBar({ value }: { value: number }) {
   const pct = Math.round(value * 100);
-  const color =
-    value >= 0.7 ? "#34d399" : value >= 0.4 ? "#fbbf24" : "#f87171";
+  const color = value >= 0.7 ? "#34d399" : "#fbbf24";
   return (
     <div className="flex items-center gap-2">
-      <div className="h-1.5 w-28 overflow-hidden rounded-full bg-white/10">
+      <div className="h-1.5 w-28 overflow-hidden rounded-full bg-white/[0.08]">
         <div
-          className="h-full rounded-full transition-all"
+          className="h-full rounded-full transition-[width] duration-200 ease-out"
           style={{ width: `${pct}%`, backgroundColor: color }}
         />
       </div>
-      <span className="font-mono text-xs text-white/60">{pct}%</span>
+      <span className="font-mono text-xs tabular-nums text-white/60">{pct}%</span>
     </div>
   );
 }
 
-/** Blast-radius meter: 0-40 green, 40-70 yellow, 70+ red. */
+/** Blast-radius meter: LOW green, ELEVATED amber, HIGH hot-amber.
+ *  Red is reserved for the blocked seal — a high blast radius escalates in
+ *  temperature (amber → orange) rather than borrowing the block's colour. */
 export function BlastRadiusMeter({ score }: { score: number }) {
   const clamped = Math.max(0, Math.min(100, score));
-  const color = clamped >= 70 ? "#f87171" : clamped >= 40 ? "#fbbf24" : "#34d399";
+  const color = clamped >= 70 ? "#fb923c" : clamped >= 40 ? "#fbbf24" : "#34d399";
   const label = clamped >= 70 ? "HIGH" : clamped >= 40 ? "ELEVATED" : "LOW";
   return (
     <div>
       <div className="mb-1 flex items-center justify-between">
         <span className="text-xs text-white/50">Blast radius</span>
-        <span className="font-mono text-xs font-semibold" style={{ color }}>
+        <span
+          className="font-mono text-xs font-semibold tabular-nums"
+          style={{ color }}
+        >
           {clamped}/100 · {label}
         </span>
       </div>
-      <div className="h-2.5 w-full overflow-hidden rounded-full bg-white/10">
+      <div className="h-2.5 w-full overflow-hidden rounded-full bg-white/[0.08]">
         <div
-          className="h-full rounded-full transition-all duration-500"
+          className="h-full rounded-full transition-[width] duration-200 ease-out"
           style={{ width: `${clamped}%`, backgroundColor: color }}
         />
       </div>

@@ -1,9 +1,18 @@
 @import "tailwindcss";
 
 :root {
-  /* Vigil is a fixed dark-theme operations dashboard. */
-  --background: #0a0b0f;
+  /* Vigil is a fixed dark-theme operations dashboard.
+     Base is near-black; exactly two elevated surfaces sit above it.
+     Semantic colour is reserved: green = grounded/safe/resolved,
+     amber = awaiting human, red = BLOCKED and nothing else. */
+  --background: #08090c;
   --foreground: #e6e8ee;
+
+  /* Elevation ladder — the only surfaces in the UI. */
+  --surface-1: rgba(255, 255, 255, 0.022);
+  --surface-2: rgba(255, 255, 255, 0.045);
+  --hairline: rgba(255, 255, 255, 0.08);
+  --hairline-strong: rgba(255, 255, 255, 0.14);
 }
 
 @theme inline {
@@ -17,4 +26,33 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Numbers must never jitter as they update — tabular figures everywhere
+   they carry meaning (IDs, counts, latencies, scores, timestamps). */
+code,
+pre,
+.font-mono,
+[class*="tabular"] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+::selection {
+  background: rgba(52, 211, 153, 0.25);
+}
+
+/* Motion is purposeful only. Honour the OS preference globally: strip every
+   decorative animation and collapse transitions to near-instant. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

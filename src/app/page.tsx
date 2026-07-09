@@ -145,17 +145,17 @@ export default function Dashboard() {
             </div>
 
             {run.status === "escalated" && (
-              <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
                 {run.remediation
-                  ? "⚠ Safety Gate escalation — a destructive remediation was routed to a human engineer. Vigil will not apply it."
-                  : "⚠ No root-cause hypothesis passed the Enkrypt Grounding Gate. Escalated to a human — Vigil will not guess."}
+                  ? "Safety Gate escalation — a destructive remediation was routed to a human engineer. Vigil will not apply it."
+                  : "No root-cause hypothesis passed the Enkrypt Grounding Gate. Escalated to a human — Vigil will not guess."}
               </div>
             )}
 
             {run.status === "blocked" && (
               <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
-                ⚠ The Enkrypt Safety Gate blocked this remediation as destructive.
-                It cannot be approved — reject or escalate to a human.
+                The Safety Gate blocked this remediation as destructive. It
+                cannot be approved — reject or escalate to a human.
               </div>
             )}
 
@@ -187,44 +187,31 @@ export default function Dashboard() {
 }
 
 function StatusPill({ run }: { run: RunState }) {
+  // Red is reserved for BLOCKED only. In-progress states read neutral;
+  // "awaiting human" states (approval, escalation) read amber; resolved reads
+  // green; engineer-declined and error read neutral.
+  const NEUTRAL = "border-white/12 bg-white/[0.04] text-white/60";
+  const AMBER = "border-amber-500/40 bg-amber-500/10 text-amber-300";
   const map: Record<string, { label: string; cls: string }> = {
-    running: {
-      label: "Running",
-      cls: "border-sky-500/40 bg-sky-500/10 text-sky-300",
-    },
-    awaiting_approval: {
-      label: "Awaiting Approval",
-      cls: "border-amber-500/40 bg-amber-500/10 text-amber-300",
-    },
+    running: { label: "Running", cls: NEUTRAL },
+    awaiting_approval: { label: "Awaiting Approval", cls: AMBER },
     blocked: {
       label: "Blocked",
       cls: "border-red-500/40 bg-red-500/10 text-red-300",
     },
-    generating_postmortem: {
-      label: "Writing Post-Mortem",
-      cls: "border-indigo-500/40 bg-indigo-500/10 text-indigo-300",
-    },
+    generating_postmortem: { label: "Writing Post-Mortem", cls: NEUTRAL },
     completed: {
       label: "Resolved",
       cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300",
     },
-    rejected: {
-      label: "Rejected",
-      cls: "border-red-500/40 bg-red-500/10 text-red-300",
-    },
-    escalated: {
-      label: "Escalated",
-      cls: "border-red-500/40 bg-red-500/10 text-red-300",
-    },
-    error: {
-      label: "Error",
-      cls: "border-red-500/40 bg-red-500/10 text-red-300",
-    },
+    rejected: { label: "Rejected", cls: NEUTRAL },
+    escalated: { label: "Escalated", cls: AMBER },
+    error: { label: "Error", cls: NEUTRAL },
   };
   const s = map[run.status] ?? map.running;
   return (
     <span
-      className={`rounded-md border px-2.5 py-1 text-xs font-semibold ${s.cls}`}
+      className={`rounded-md border px-2.5 py-1 text-xs font-semibold tabular-nums ${s.cls}`}
     >
       {s.label}
       {run.mttrMinutes && run.status === "completed"

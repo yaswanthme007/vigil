@@ -122,7 +122,7 @@ export function RemediationPanel({
             <button
               disabled={busy}
               onClick={() => setRejecting(true)}
-              className="flex-1 rounded-lg border border-red-500/40 bg-red-500/15 px-4 py-2 text-sm font-semibold text-red-200 transition hover:bg-red-500/25 disabled:opacity-40"
+              className="flex-1 rounded-lg border border-white/12 bg-white/[0.04] px-4 py-2 text-sm font-semibold text-white/70 transition-colors duration-150 ease-out hover:bg-white/[0.08] disabled:opacity-40"
             >
               Reject
             </button>
@@ -141,7 +141,7 @@ export function RemediationPanel({
             <button
               disabled={busy}
               onClick={() => setRejecting(true)}
-              className="flex-1 rounded-lg border border-red-500/40 bg-red-500/15 px-4 py-2 text-sm font-semibold text-red-200 transition hover:bg-red-500/25 disabled:opacity-40"
+              className="flex-1 rounded-lg border border-white/12 bg-white/[0.04] px-4 py-2 text-sm font-semibold text-white/70 transition-colors duration-150 ease-out hover:bg-white/[0.08] disabled:opacity-40"
             >
               Reject
             </button>
@@ -168,7 +168,7 @@ export function RemediationPanel({
               <button
                 disabled={busy}
                 onClick={() => onDecision(false, reason)}
-                className="flex-1 rounded-lg border border-red-500/40 bg-red-500/15 px-4 py-2 text-sm font-semibold text-red-200 transition hover:bg-red-500/25 disabled:opacity-40"
+                className="flex-1 rounded-lg border border-white/15 bg-white/[0.06] px-4 py-2 text-sm font-semibold text-white/75 transition-colors duration-150 ease-out hover:bg-white/[0.1] disabled:opacity-40"
               >
                 Confirm Rejection
               </button>
@@ -190,8 +190,8 @@ export function RemediationPanel({
                 ✓ Approved by {decided.engineer_id}
               </p>
             ) : (
-              <p className="text-red-300">
-                ✕ Rejected by {decided.engineer_id}
+              <p className="text-white/60">
+                Rejected by {decided.engineer_id}
                 {decided.rejection_reason ? ` — ${decided.rejection_reason}` : ""}
               </p>
             )}

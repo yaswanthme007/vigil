@@ -16,7 +16,7 @@ export function RootCausePanel({ run }: { run: RunState }) {
       )}
 
       {hypotheses.length === 0 && run.step >= 4 && (
-        <p className="text-sm text-red-300/80">
+        <p className="text-sm text-amber-300/80">
           No hypothesis passed the Grounding Gate — escalated to a human.
         </p>
       )}

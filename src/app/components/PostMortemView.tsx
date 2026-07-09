@@ -8,7 +8,7 @@ export function PostMortemView({ run }: { run: RunState }) {
   if (!pm && !generating) return null;
 
   return (
-    <Card title="Post-Mortem" step={8} accent="#a5b4fc">
+    <Card title="Post-Mortem" step={8} accent="rgba(52,211,153,0.7)">
       {generating && !pm && (
         <p className="text-sm text-white/50">
           Writing post-mortem and updating memory…
@@ -18,10 +18,10 @@ export function PostMortemView({ run }: { run: RunState }) {
       {pm && (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-3">
-            <span className="font-mono text-xs text-white/50">
+            <span className="font-mono text-xs tabular-nums text-white/50">
               {pm.postmortem_id}
             </span>
-            <span className="rounded-md border border-indigo-500/30 bg-indigo-500/10 px-2 py-0.5 text-xs font-semibold text-indigo-300">
+            <span className="rounded-md border border-white/12 bg-white/[0.04] px-2 py-0.5 text-xs font-semibold tabular-nums text-white/60">
               Quality {pm.quality_score}/100
             </span>
             {pm.incident_updated && (
