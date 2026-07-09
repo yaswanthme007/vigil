@@ -11,11 +11,23 @@ import { PostMortemView } from "./components/PostMortemView";
 import { blockedByText } from "./components/safety";
 import type { RunState, StatusResponse } from "./components/types";
 
+/** States in which a run has finished and can be cleared for a new incident. */
+const TERMINAL_STATUSES = new Set([
+  "completed",
+  "rejected",
+  "blocked",
+  "escalated",
+  "error",
+]);
+
 export default function Dashboard() {
   const [memoryCount, setMemoryCount] = useState(0);
   const [run, setRun] = useState<RunState | null>(null);
   const [busy, setBusy] = useState(false);
   const runIdRef = useRef<string | null>(null);
+  // Once a run is cleared client-side, ignore the server's "latest run" until a
+  // new scenario is triggered — so Reset returns to idle and stays there.
+  const dismissedRef = useRef(false);
 
   const poll = useCallback(async () => {
     const runId = runIdRef.current;
@@ -25,6 +37,7 @@ export default function Dashboard() {
       if (!res.ok) return;
       const data = (await res.json()) as StatusResponse;
       setMemoryCount(data.memoryCount);
+      if (dismissedRef.current) return; // idle after Reset — keep run cleared
       if (data.run) setRun(data.run);
     } catch {
       /* transient — keep last state, dashboard must never crash */
@@ -43,6 +56,7 @@ export default function Dashboard() {
       setBusy(true);
       setRun(null);
       runIdRef.current = null;
+      dismissedRef.current = false; // a new run should render again
       try {
         const res = await fetch("/api/incident", {
           method: "POST",
@@ -109,6 +123,19 @@ export default function Dashboard() {
     }
   }, [poll]);
 
+  // Clear the current run client-side and return to idle. Never touches the
+  // server or Qdrant — the memory counter is unaffected.
+  const resetRun = useCallback(() => {
+    runIdRef.current = null;
+    dismissedRef.current = true;
+    setRun(null);
+  }, []);
+
+  const terminal = run ? TERMINAL_STATUSES.has(run.status) : false;
+  // A run is "active" while it is in progress or awaiting a human — no new
+  // scenario may be started on top of it.
+  const runActive = Boolean(run) && !terminal;
+
   return (
     <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
       <Header memoryCount={memoryCount} />
@@ -118,7 +145,10 @@ export default function Dashboard() {
           <p className="mb-2 text-xs uppercase tracking-widest text-white/40">
             Demo Control
           </p>
-          <DemoControlPanel onTrigger={triggerScenario} busy={busy} />
+          <DemoControlPanel
+            onTrigger={triggerScenario}
+            busy={busy || runActive}
+          />
         </section>
 
         {!run && (
@@ -140,7 +170,10 @@ export default function Dashboard() {
                 <span className="text-xs uppercase tracking-widest text-white/40">
                   Workflow
                 </span>
-                <StatusPill run={run} />
+                <div className="flex items-center gap-2">
+                  <StatusPill run={run} />
+                  {terminal && <ResetButton onClick={resetRun} />}
+                </div>
               </div>
               <WorkflowProgress run={run} />
             </div>
@@ -183,6 +216,31 @@ export default function Dashboard() {
         Qdrant · Enkrypt · Groq
       </footer>
     </main>
+  );
+}
+
+function ResetButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      title="Clear this run and start a new incident (memory is untouched)"
+      className="inline-flex items-center gap-1.5 rounded-md border border-white/12 bg-white/[0.04] px-2.5 py-1 text-xs font-medium text-white/60 transition-colors duration-150 ease-out hover:bg-white/[0.08] hover:text-white/80"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="h-3.5 w-3.5"
+        aria-hidden
+      >
+        <path d="M3 12a9 9 0 1 0 3-6.7" />
+        <path d="M3 4v4h4" />
+      </svg>
+      New incident
+    </button>
   );
 }
 
