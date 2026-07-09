@@ -13,6 +13,7 @@
     "test:search": "npx tsx scripts/test-search.ts",
     "test:workflow": "npx tsx scripts/test-workflow.ts",
     "test:guardrails": "npx tsx scripts/test-guardrails.ts",
+    "test:enkrypt": "npx tsx scripts/test-enkrypt.ts",
     "test:full": "npx tsx scripts/test-full.ts",
     "seed": "npx tsx src/mastra/qdrant/seed.ts"
   },

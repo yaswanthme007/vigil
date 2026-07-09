@@ -4,23 +4,45 @@ import type { RootCauseHypothesis } from "../types";
 /**
  * Enkrypt AI guardrails — Vigil's two hard safety gates.
  *
- *   validateGrounding    → Grounding Gate: drops ungrounded root-cause hypotheses
+ *   validateGrounding    → Grounding Gate: drops ungrounded / hallucinated hypotheses
  *   checkDestructiveAction → Safety Gate: blocks destructive remediations
  *
- * DESIGN: each function has one public entry point with a STABLE interface. When
- * ENKRYPT_API_KEY is present we route to the real Enkrypt API; otherwise we fall
- * back to a local heuristic ("stub"). Swapping in the real key is therefore a
- * config change, not a code change — the callers never see the difference.
- *
- * The real-API branch is intentionally isolated in enkryptGrounding()/
- * enkryptDestructive() so wiring the live Enkrypt contract is a single, contained
- * edit once the key + API docs are in hand. Both are wrapped in try/catch so a
- * transient Enkrypt failure degrades to the heuristic instead of crashing a live
- * incident response.
+ * When ENKRYPT_API_KEY is set, both gates call the real Enkrypt Guardrails API
+ * (hallucination + detect endpoints). The domain heuristics remain as the
+ * fallback whenever the API is unavailable, and — for destructive actions — as
+ * the always-on base detector (Enkrypt's detectors target LLM-safety signals
+ * like prompt injection and toxicity, not SRE-destructive commands such as
+ * DROP TABLE, so we combine both). The public interfaces never change, so
+ * flipping between real API and stub is purely a matter of the env var.
  */
+
+const ENKRYPT_BASE_URL =
+  process.env.ENKRYPT_BASE_URL || "https://api.enkryptai.com";
+const ENKRYPT_TIMEOUT_MS = 8000;
 
 function enkryptEnabled(): boolean {
   return Boolean(process.env.ENKRYPT_API_KEY);
+}
+
+/** POST helper for the Enkrypt Guardrails API (apikey header, JSON in/out). */
+async function enkryptPost<T = unknown>(
+  path: string,
+  body: unknown
+): Promise<T> {
+  const res = await fetch(`${ENKRYPT_BASE_URL}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: process.env.ENKRYPT_API_KEY as string,
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(ENKRYPT_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Enkrypt ${path} -> ${res.status} ${detail.slice(0, 200)}`);
+  }
+  return res.json() as Promise<T>;
 }
 
 /* ── Destructive-action patterns (shared with estimateBlastRadius) ─────────── */
@@ -102,38 +124,56 @@ export function scanDestructive(text: string): DestructiveMatch[] {
 /* ── Grounding Gate ──────────────────────────────────────────────────────── */
 
 const MIN_CONFIDENCE = 0.3;
+const HALLUCINATION_THRESHOLD = 0.5;
+
+interface HallucinationResponse {
+  summary?: { is_hallucination?: number };
+  details?: { prompt_based?: number };
+}
 
 /**
- * Grounding Gate. Returns ONLY the hypotheses that are backed by cited evidence.
- * An empty result means nothing passed — the caller must escalate to a human.
+ * Grounding Gate. Returns ONLY the hypotheses backed by cited evidence that
+ * Enkrypt also judges to be non-hallucinated. An empty result means nothing
+ * passed — the caller must escalate to a human.
  */
 export async function validateGrounding(
   hypotheses: RootCauseHypothesis[]
 ): Promise<RootCauseHypothesis[]> {
-  if (enkryptEnabled()) {
-    try {
-      return await enkryptGrounding(hypotheses);
-    } catch (err) {
-      console.warn(
-        "[enkrypt] grounding API failed — falling back to heuristic:",
-        err
-      );
-    }
-  } else {
+  // Base structural filter: must cite real evidence and clear the confidence bar.
+  const structural = hypotheses.filter(
+    (h) => h.evidence_ids.length > 0 && h.confidence >= MIN_CONFIDENCE
+  );
+
+  if (!enkryptEnabled()) {
     console.warn(
       "Enkrypt stub active — using local grounding heuristic (set ENKRYPT_API_KEY for real validation)."
     );
+    return structural;
   }
-  return heuristicGrounding(hypotheses);
-}
 
-/** Local heuristic: keep hypotheses with real evidence and adequate confidence. */
-function heuristicGrounding(
-  hypotheses: RootCauseHypothesis[]
-): RootCauseHypothesis[] {
-  return hypotheses.filter(
-    (h) => h.evidence_ids.length > 0 && h.confidence >= MIN_CONFIDENCE
-  );
+  try {
+    const verdicts = await Promise.all(
+      structural.map(async (h) => {
+        const data = await enkryptPost<HallucinationResponse>(
+          "/guardrails/hallucination",
+          {
+            request_text: h.explanation,
+            response_text: h.explanation,
+            context: h.evidence_ids.join(", "),
+          }
+        );
+        const score = Number(data?.summary?.is_hallucination ?? 0);
+        return { hypothesis: h, hallucinated: score > HALLUCINATION_THRESHOLD };
+      })
+    );
+    return verdicts.filter((v) => !v.hallucinated).map((v) => v.hypothesis);
+  } catch (err) {
+    console.warn(
+      "[enkrypt] hallucination API failed — falling back to structural grounding:",
+      err
+    );
+    return structural;
+  }
 }
 
 /* ── Safety Gate ─────────────────────────────────────────────────────────── */
@@ -144,28 +184,73 @@ export interface DestructiveCheck {
   blast_radius: number;
 }
 
+interface DetectResponse {
+  summary?: {
+    injection_attack?: number;
+    toxicity?: string[] | number;
+    nsfw?: number;
+    policy_violation?: number;
+  };
+}
+
 /**
- * Safety Gate. Inspects a remediation's text for destructive actions.
- * Returns { safe, reasons, blast_radius }. `safe: false` MUST block auto-apply.
+ * Safety Gate. The domain keyword heuristic is the always-on base detector for
+ * destructive SRE actions; Enkrypt's /detect adds LLM-threat signals (prompt
+ * injection, toxicity). The remediation is unsafe if EITHER flags it.
  */
 export async function checkDestructiveAction(
   remediation: string
 ): Promise<DestructiveCheck> {
-  if (enkryptEnabled()) {
-    try {
-      return await enkryptDestructive(remediation);
-    } catch (err) {
-      console.warn(
-        "[enkrypt] destructive-action API failed — falling back to heuristic:",
-        err
-      );
-    }
-  } else {
+  const base = heuristicDestructive(remediation);
+
+  if (!enkryptEnabled()) {
     console.warn(
       "Enkrypt stub active — using local destructive-action heuristic (set ENKRYPT_API_KEY for real detection)."
     );
+    return base;
   }
-  return heuristicDestructive(remediation);
+
+  try {
+    const data = await enkryptPost<DetectResponse>("/guardrails/detect", {
+      text: remediation,
+      // The API requires an explicit enabled flag per detector.
+      detectors: {
+        injection_attack: { enabled: true },
+        toxicity: { enabled: true },
+      },
+    });
+
+    const summary = data?.summary ?? {};
+    const enkryptReasons: string[] = [];
+
+    if (Number(summary.injection_attack) === 1) {
+      enkryptReasons.push("Enkrypt: prompt-injection detected");
+    }
+    const toxicity = summary.toxicity;
+    if (Array.isArray(toxicity) && toxicity.length > 0) {
+      enkryptReasons.push(`Enkrypt: toxic content (${toxicity.join(", ")})`);
+    } else if (typeof toxicity === "number" && toxicity === 1) {
+      enkryptReasons.push("Enkrypt: toxic content detected");
+    }
+
+    const reasons = [...base.reasons, ...enkryptReasons];
+    const blast_radius = Math.min(
+      100,
+      base.blast_radius + enkryptReasons.length * 20
+    );
+
+    return {
+      safe: base.safe && enkryptReasons.length === 0,
+      reasons,
+      blast_radius,
+    };
+  } catch (err) {
+    console.warn(
+      "[enkrypt] detect API failed — falling back to heuristic:",
+      err
+    );
+    return base;
+  }
 }
 
 /** Local heuristic: match destructive patterns and score their severity. */
@@ -179,28 +264,4 @@ function heuristicDestructive(remediation: string): DestructiveCheck {
   blast = Math.min(100, blast);
 
   return { safe: matches.length === 0, reasons, blast_radius: blast };
-}
-
-/* ── Real Enkrypt API branch (wired when ENKRYPT_API_KEY arrives) ─────────── */
-/*
- * These are the single, contained edit points for the live Enkrypt integration.
- * Until the key + API contract are available they throw, so validateGrounding /
- * checkDestructiveAction transparently fall back to the heuristics above. Fill
- * in the real request/response mapping here — callers require no changes.
- */
-
-async function enkryptGrounding(
-  _hypotheses: RootCauseHypothesis[]
-): Promise<RootCauseHypothesis[]> {
-  // TODO(enkrypt): POST hypotheses to the Enkrypt grounding/faithfulness
-  // guardrail and keep only those it marks as grounded.
-  throw new Error("Enkrypt grounding API not yet wired");
-}
-
-async function enkryptDestructive(
-  _remediation: string
-): Promise<DestructiveCheck> {
-  // TODO(enkrypt): POST the remediation text to the Enkrypt policy/violation
-  // guardrail and map its verdict to { safe, reasons, blast_radius }.
-  throw new Error("Enkrypt destructive-action API not yet wired");
 }
