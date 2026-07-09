@@ -13,8 +13,9 @@
 # testing
 /coverage
 
-# local embedding model cache (@xenova/transformers downloads weights here)
-/.cache
+# NOTE: the embedding model weights are pre-bundled and COMMITTED at /models
+# (quantized ONNX, ~23MB) so there is zero Hugging Face fetch at runtime. Do not
+# add /models to this file.
 
 # next.js
 /.next/

@@ -1,4 +1,5 @@
 import "./env";
+import { resolve } from "node:path";
 import { pipeline, env, type FeatureExtractionPipeline } from "@xenova/transformers";
 
 /**
@@ -6,10 +7,12 @@ import { pipeline, env, type FeatureExtractionPipeline } from "@xenova/transform
  * 384-dim). Runs entirely in-process with no API key, quota, or network call at
  * request time, so it cannot fail on stage the way a hosted embedding API can.
  *
- * The model weights are downloaded once from the Hugging Face hub and cached to
- * disk (warm up with `warmupEmbeddings()` at server start). Groq (LLM), Qdrant,
- * and Enkrypt are unchanged. GEMINI_API_KEY remains commented in .env.local as a
- * documented fallback path if we ever want to revert to hosted embeddings.
+ * The model weights are PRE-BUNDLED in the repo at ./models (quantized ONNX) and
+ * loaded strictly from disk — allowRemoteModels is off, so there is ZERO network
+ * call at runtime (not even a one-time Hugging Face fetch on first boot). Warm up
+ * with `warmupEmbeddings()` at server start. Groq (LLM), Qdrant, and Enkrypt are
+ * unchanged. GEMINI_API_KEY remains commented in .env.local as a documented
+ * fallback path if we ever want to revert to hosted embeddings.
  *
  * The public interface is unchanged: embedDocument() / embedQuery() (and the
  * internal embed(text, taskType?)), so no calling code needs to change. taskType
@@ -18,10 +21,12 @@ import { pipeline, env, type FeatureExtractionPipeline } from "@xenova/transform
 export const EMBED_MODEL = "Xenova/all-MiniLM-L6-v2";
 export const EMBED_DIM = 384;
 
-// Cache directory inside the project so the model persists across restarts.
-env.cacheDir = ".cache/transformers";
-// We only use hub models; allow the local cache to satisfy repeat loads.
-env.allowLocalModels = false;
+// Load the model STRICTLY from the pre-bundled ./models directory — never the
+// network. Resolved against cwd (all npm scripts + the server run from the repo
+// root) so the path is stable regardless of how the process is launched.
+env.localModelPath = resolve(process.cwd(), "models");
+env.allowLocalModels = true; // read weights from ./models/<model>/...
+env.allowRemoteModels = false; // hard-off: no Hugging Face fetch, ever
 
 let extractorPromise: Promise<FeatureExtractionPipeline> | null = null;
 
