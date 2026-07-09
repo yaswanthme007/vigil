@@ -37,33 +37,42 @@ vigil/
 │   ├── mastra/
 │   │   ├── index.ts                    # Mastra instance (agent + workflows)
 │   │   ├── agent.ts                    # vigilAgent (Groq) — own module to avoid import cycle
-│   │   ├── types.ts                    # Zod schemas + types for all workflow steps
+│   │   ├── types.ts                    # Zod schemas + types for all 8 workflow steps
 │   │   ├── ids.ts                      # stableId() — deterministic UUIDs for idempotent upserts
 │   │   ├── embeddings.ts               # Gemini embeddings (gemini-embedding-001 @ 768-dim)
+│   │   ├── scenarios.ts               # 3 hardcoded demo scenarios (A safe / B destructive / C variant)
 │   │   ├── workflows/
-│   │   │   └── incidentResponse.ts     # 8-step workflow
+│   │   │   └── incidentResponse.ts     # 8-step Mastra workflow + pure step functions
+│   │   ├── engine/
+│   │   │   └── runStore.ts            # In-memory run engine driving the dashboard (calls same step fns)
 │   │   ├── tools/
 │   │   │   ├── searchIncidents.ts
 │   │   │   ├── searchRunbooks.ts
-│   │   │   ├── searchLogs.ts
 │   │   │   ├── estimateBlastRadius.ts
-│   │   │   └── createPostmortem.ts
+│   │   │   ├── searchLogs.ts           # (planned)
+│   │   │   └── createPostmortem.ts     # (planned — post-mortem lives in workflow generatePostmortem for now)
 │   │   ├── guardrails/
-│   │   │   └── enkrypt.ts              # Enkrypt wrapper
+│   │   │   └── enkrypt.ts              # Enkrypt gates (validateGrounding, checkDestructiveAction) + stub/real swap
 │   │   └── qdrant/
 │   │       ├── client.ts               # Qdrant connection
-│   │       ├── collections.ts          # 4 collection definitions
+│   │       ├── collections.ts          # 4 collection definitions + payload indexes
 │   │       └── seed.ts                 # Synthetic data seeder
 │   ├── app/
-│   │   ├── page.tsx                    # Main dashboard
+│   │   ├── page.tsx                    # Main dashboard (client, polls /api/status every 2s)
 │   │   ├── api/
-│   │   │   ├── incident/route.ts       # Trigger incident
-│   │   │   └── approve/route.ts        # Human approval
+│   │   │   ├── incident/route.ts       # POST — trigger incidentResponse run
+│   │   │   ├── approve/route.ts        # POST — human approval (resume)
+│   │   │   └── status/route.ts         # GET  — run state + memory counter
 │   │   └── components/
+│   │       ├── types.ts                # client-side RunState mirror
+│   │       ├── ui.tsx                  # shared primitives (badges, meters, Card, Enkrypt badge)
+│   │       ├── Header.tsx              # logo, System Active, memory counter
+│   │       ├── DemoControlPanel.tsx    # 3 scenario trigger buttons
+│   │       ├── WorkflowProgress.tsx    # 8-step progress strip
 │   │       ├── IncidentPanel.tsx
-│   │       ├── RootCausePanel.tsx
-│   │       ├── RemediationPanel.tsx
-│   │       └── PostMortemView.tsx
+│   │       ├── RootCausePanel.tsx      # hypotheses, Grounded badge, clickable citations
+│   │       ├── RemediationPanel.tsx    # steps, blast meter, safety badge, approve/reject
+│   │       └── PostMortemView.tsx      # markdown report, quality score, Saved to Memory
 │   └── data/
 │       └── synthetic/
 │           ├── incidents.json

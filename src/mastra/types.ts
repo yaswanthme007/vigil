@@ -183,3 +183,41 @@ export const safetyCheckedPlanSchema = remediationPlanSchema.extend({
   safety: safetyStatusSchema,
 });
 export type SafetyCheckedPlan = z.infer<typeof safetyCheckedPlanSchema>;
+
+/* ── Step 7: Human Approval ──────────────────────────────────────────────── */
+
+/** Payload surfaced to the engineer while the workflow is suspended. */
+export const approvalSuspendSchema = z.object({
+  remediation_plan: safetyCheckedPlanSchema,
+  safety_status: safetyStatusSchema,
+  grounded_hypotheses: z.array(rootCauseHypothesisSchema),
+});
+export type ApprovalSuspend = z.infer<typeof approvalSuspendSchema>;
+
+/** The engineer's decision that resumes the workflow. */
+export const approvalDecisionSchema = z.object({
+  approved: z.boolean(),
+  rejection_reason: z.string().optional(),
+  engineer_id: z.string(),
+});
+export type ApprovalDecision = z.infer<typeof approvalDecisionSchema>;
+
+/** Step 7 output: the plan carried forward with the approval decision. */
+export const approvalOutputSchema = z.object({
+  plan: safetyCheckedPlanSchema,
+  decision: approvalDecisionSchema,
+});
+export type ApprovalOutput = z.infer<typeof approvalOutputSchema>;
+
+/* ── Step 8: Generate Post-Mortem ────────────────────────────────────────── */
+
+/** Step 8 output: the generated post-mortem and flywheel confirmation. */
+export const postmortemOutputSchema = z.object({
+  postmortem_id: z.string(),
+  postmortem_text: z.string(),
+  incident_updated: z.boolean(),
+  action_items: z.array(z.string()),
+  prevention_recommendations: z.array(z.string()),
+  quality_score: z.number().min(0).max(100),
+});
+export type PostmortemOutput = z.infer<typeof postmortemOutputSchema>;

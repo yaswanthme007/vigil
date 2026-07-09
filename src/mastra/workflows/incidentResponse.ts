@@ -18,6 +18,10 @@ import {
   groundingGateOutputSchema,
   remediationPlanSchema,
   safetyCheckedPlanSchema,
+  approvalSuspendSchema,
+  approvalDecisionSchema,
+  approvalOutputSchema,
+  postmortemOutputSchema,
   type IncidentInput,
   type IngestOutput,
   type RetrievalOutput,
@@ -25,6 +29,8 @@ import {
   type GroundingGateOutput,
   type RemediationPlan,
   type SafetyCheckedPlan,
+  type ApprovalDecision,
+  type PostmortemOutput,
   type SimilarIncident,
   type MatchingRunbook,
   type LogChunk,
@@ -425,6 +431,9 @@ export async function proposeRemediation(args: {
   hypotheses: RootCauseHypothesis[];
   matchingRunbooks: MatchingRunbook[];
   signature: IncidentSignature;
+  /** Preset the plan steps (skips the LLM) — used for deterministic demos. */
+  overrideSteps?: string[];
+  overrideRollback?: string;
 }): Promise<RemediationPlan> {
   const { hypotheses, matchingRunbooks, signature } = args;
   const topRunbook = matchingRunbooks[0];
@@ -460,24 +469,31 @@ Respond with ONLY a JSON object in this exact shape:
 
   let steps: string[] = [];
   let rollback_procedure = "";
-  try {
-    const res = await vigilAgent.generate(prompt);
-    const text =
-      typeof res === "string" ? res : ((res as { text?: string }).text ?? "");
-    const parsed = extractJsonObject(text) as {
-      steps?: unknown;
-      rollback_procedure?: unknown;
-    } | null;
-    if (parsed) {
-      if (Array.isArray(parsed.steps)) {
-        steps = parsed.steps.map(String).filter((s) => s.trim().length > 0);
+
+  if (args.overrideSteps && args.overrideSteps.length > 0) {
+    // Deterministic path (demo scenarios) — skip the LLM entirely.
+    steps = [...args.overrideSteps];
+    rollback_procedure = args.overrideRollback ?? "";
+  } else {
+    try {
+      const res = await vigilAgent.generate(prompt);
+      const text =
+        typeof res === "string" ? res : ((res as { text?: string }).text ?? "");
+      const parsed = extractJsonObject(text) as {
+        steps?: unknown;
+        rollback_procedure?: unknown;
+      } | null;
+      if (parsed) {
+        if (Array.isArray(parsed.steps)) {
+          steps = parsed.steps.map(String).filter((s) => s.trim().length > 0);
+        }
+        if (typeof parsed.rollback_procedure === "string") {
+          rollback_procedure = parsed.rollback_procedure;
+        }
       }
-      if (typeof parsed.rollback_procedure === "string") {
-        rollback_procedure = parsed.rollback_procedure;
-      }
+    } catch (err) {
+      console.error("[proposeRemediation] LLM call failed:", err);
     }
-  } catch (err) {
-    console.error("[proposeRemediation] LLM call failed:", err);
   }
 
   // Fallback: use the top runbook's steps verbatim so we never emit an empty plan.
@@ -508,7 +524,12 @@ Respond with ONLY a JSON object in this exact shape:
     },
   });
 
-  const requires_approval = matchingRunbooks.some((r) => r.requires_approval);
+  const usingOverride = Boolean(
+    args.overrideSteps && args.overrideSteps.length > 0
+  );
+  // Override plans are operator-proposed emergency actions, not runbook-derived.
+  const requires_approval =
+    usingOverride || matchingRunbooks.some((r) => r.requires_approval);
 
   return {
     steps,
@@ -519,7 +540,9 @@ Respond with ONLY a JSON object in this exact shape:
         : signature.affected_services,
     rollback_procedure,
     requires_approval,
-    source_runbook_ids: matchingRunbooks.map((r) => r.runbook_id),
+    source_runbook_ids: usingOverride
+      ? []
+      : matchingRunbooks.map((r) => r.runbook_id),
   };
 }
 
@@ -557,6 +580,227 @@ export async function safetyGate(
       blast_radius: check.blast_radius,
     },
   };
+}
+
+/* ── Step 8: Generate Post-Mortem (the flywheel) ─────────────────────────── */
+
+export async function generatePostmortem(ctx: {
+  signature: IncidentSignature;
+  hypotheses: RootCauseHypothesis[];
+  plan: SafetyCheckedPlan;
+  decision: ApprovalDecision;
+  similarIncidents?: SimilarIncident[];
+  mttrMinutes?: number;
+}): Promise<PostmortemOutput> {
+  const { signature, hypotheses, plan, decision } = ctx;
+  const topHypothesis = hypotheses[0];
+  const rootCauseCategory = topHypothesis?.root_cause_category ?? "unknown";
+  const postmortem_id = `PM-${signature.incidentId}`;
+  const mttrMinutes = ctx.mttrMinutes ?? 30;
+  const nowIso = new Date().toISOString();
+
+  const priorContext = (ctx.similarIncidents ?? [])
+    .slice(0, 3)
+    .map(
+      (s) =>
+        `- ${s.incident_id} (${s.root_cause_category}): ${s.remediation_applied}`
+    )
+    .join("\n");
+
+  const prompt = `You are Vigil's post-mortem writer. Produce a professional, blameless incident post-mortem in Markdown with EXACTLY these sections (use "## " headings):
+Incident Summary, Timeline, Root Cause Analysis, Remediation Applied, What Worked / What Didn't, Follow-up Action Items, Prevention Recommendations.
+
+INCIDENT
+- id: ${signature.incidentId}
+- services: ${signature.affected_services.join(", ")}
+- severity: ${signature.severity}
+- primary error: ${signature.primary_error_pattern}
+- detected at: ${signature.anomaly_start_timestamp ?? "unknown"}
+- time to resolve: ~${mttrMinutes} minutes
+
+ROOT-CAUSE HYPOTHESES (ranked):
+${hypotheses.map((h) => `- (${h.confidence.toFixed(2)}) [${h.root_cause_category}] ${h.explanation}`).join("\n") || "(none)"}
+
+REMEDIATION APPLIED (approved by ${decision.engineer_id}):
+${plan.steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}
+Rollback: ${plan.rollback_procedure}
+Blast radius: ${plan.blast_radius_score}/100. Safety: ${plan.safety.safe ? "clean" : plan.safety.reasons.join("; ")}
+
+SIMILAR PAST INCIDENTS:
+${priorContext || "(none)"}
+
+Respond with ONLY a JSON object in this exact shape (the markdown goes in "postmortem_markdown"):
+{"postmortem_markdown": "## Incident Summary\\n...", "action_items": ["..."], "prevention_recommendations": ["..."]}`;
+
+  let markdown = "";
+  let action_items: string[] = [];
+  let prevention_recommendations: string[] = [];
+
+  try {
+    const res = await vigilAgent.generate(prompt);
+    const text =
+      typeof res === "string" ? res : ((res as { text?: string }).text ?? "");
+    const parsed = extractJsonObject(text) as {
+      postmortem_markdown?: unknown;
+      action_items?: unknown;
+      prevention_recommendations?: unknown;
+    } | null;
+    if (parsed) {
+      if (typeof parsed.postmortem_markdown === "string") {
+        markdown = parsed.postmortem_markdown;
+      }
+      if (Array.isArray(parsed.action_items)) {
+        action_items = parsed.action_items.map(String);
+      }
+      if (Array.isArray(parsed.prevention_recommendations)) {
+        prevention_recommendations =
+          parsed.prevention_recommendations.map(String);
+      }
+    }
+  } catch (err) {
+    console.error("[generatePostmortem] LLM call failed:", err);
+  }
+
+  // Fallback so a post-mortem is always produced, even if the LLM is down.
+  if (!markdown) {
+    markdown = fallbackPostmortem({
+      signature,
+      hypotheses,
+      plan,
+      decision,
+      mttrMinutes,
+    });
+    if (action_items.length === 0) {
+      action_items = [
+        `Add alerting for "${signature.primary_error_pattern}" before it escalates.`,
+        `Document the applied remediation in the ${rootCauseCategory} runbook.`,
+      ];
+    }
+    if (prevention_recommendations.length === 0) {
+      prevention_recommendations = [
+        `Load-test ${signature.affected_services[0] ?? "the affected service"} against this failure mode.`,
+      ];
+    }
+  }
+
+  const quality_score = scorePostmortem({
+    markdown,
+    action_items,
+    prevention_recommendations,
+    hypotheses,
+  });
+
+  // Write the post-mortem to Qdrant.
+  const summary = `${signature.primary_error_pattern} affecting ${signature.affected_services.join(", ")}. Root cause: ${rootCauseCategory}. Resolved by: ${plan.steps[0] ?? "remediation"}.`;
+
+  const postmortemVector = await embedDocument(`${summary}\n\n${markdown}`);
+  await qdrant.upsert("postmortems", {
+    wait: true,
+    points: [
+      {
+        id: stableId(postmortem_id),
+        vector: { content_embedding: postmortemVector },
+        payload: {
+          postmortem_id,
+          incident_id: signature.incidentId,
+          full_text: markdown,
+          action_items,
+          prevention_recommendations,
+          created_at: nowIso,
+          quality_score,
+        },
+      },
+    ],
+  });
+
+  // FLYWHEEL: upsert the resolved incident back into memory so future
+  // retrievals find it. This is what makes the memory counter climb and
+  // subsequent similar incidents resolve with higher confidence.
+  const incidentVector = await embedDocument(summary);
+  await qdrant.upsert("incidents", {
+    wait: true,
+    points: [
+      {
+        id: stableId(signature.incidentId),
+        vector: { summary_embedding: incidentVector },
+        payload: {
+          incident_id: signature.incidentId,
+          summary,
+          services_affected: signature.affected_services,
+          symptoms: [signature.primary_error_pattern],
+          root_cause_category: rootCauseCategory,
+          remediation_applied: plan.steps.join(" "),
+          remediation_worked: true,
+          mttr_minutes: mttrMinutes,
+          severity: signature.severity,
+          created_at: nowIso,
+          postmortem_id,
+        },
+      },
+    ],
+  });
+
+  return {
+    postmortem_id,
+    postmortem_text: markdown,
+    incident_updated: true,
+    action_items,
+    prevention_recommendations,
+    quality_score,
+  };
+}
+
+/** Deterministic post-mortem used when the LLM is unavailable. */
+function fallbackPostmortem(ctx: {
+  signature: IncidentSignature;
+  hypotheses: RootCauseHypothesis[];
+  plan: SafetyCheckedPlan;
+  decision: ApprovalDecision;
+  mttrMinutes: number;
+}): string {
+  const { signature, hypotheses, plan, decision, mttrMinutes } = ctx;
+  const top = hypotheses[0];
+  return [
+    `## Incident Summary`,
+    `${signature.severity} incident on ${signature.affected_services.join(", ")}: ${signature.primary_error_pattern}. Resolved in ~${mttrMinutes} minutes.`,
+    ``,
+    `## Timeline`,
+    `- ${signature.anomaly_start_timestamp ?? "T0"} — anomaly detected (${signature.raw_log_count} log lines ingested).`,
+    `- Root cause identified and remediation approved by ${decision.engineer_id}.`,
+    ``,
+    `## Root Cause Analysis`,
+    top
+      ? `${top.explanation} (category: ${top.root_cause_category}, confidence ${top.confidence.toFixed(2)}).`
+      : `Root cause could not be determined automatically.`,
+    ``,
+    `## Remediation Applied`,
+    ...plan.steps.map((s, i) => `${i + 1}. ${s}`),
+    ``,
+    `## What Worked / What Didn't`,
+    `The remediation passed Vigil's safety checks (blast radius ${plan.blast_radius_score}/100) and resolved the incident.`,
+    ``,
+    `## Follow-up Action Items`,
+    `- Review alerting coverage for this failure mode.`,
+    ``,
+    `## Prevention Recommendations`,
+    `- Harden ${signature.affected_services[0] ?? "the affected service"} against recurrence.`,
+  ].join("\n");
+}
+
+/** Heuristic post-mortem quality score (0-100). */
+function scorePostmortem(ctx: {
+  markdown: string;
+  action_items: string[];
+  prevention_recommendations: string[];
+  hypotheses: RootCauseHypothesis[];
+}): number {
+  let score = 55;
+  const sections = (ctx.markdown.match(/^##\s/gm) ?? []).length;
+  score += Math.min(sections, 7) * 3; // up to +21 for the 7 sections
+  if (ctx.action_items.length >= 2) score += 8;
+  if (ctx.prevention_recommendations.length >= 1) score += 8;
+  if (ctx.hypotheses.some((h) => h.evidence_ids.length > 0)) score += 8;
+  return Math.min(100, Math.round(score));
 }
 
 /* ── Workflow assembly ───────────────────────────────────────────────────── */
@@ -634,10 +878,69 @@ export const safetyGateStep = createStep({
   execute: async ({ inputData }) => safetyGate(inputData),
 });
 
+export const approvalStep = createStep({
+  id: "human-approval",
+  description:
+    "Suspend for a human engineer to approve or reject the remediation plan.",
+  inputSchema: safetyCheckedPlanSchema,
+  suspendSchema: approvalSuspendSchema,
+  resumeSchema: approvalDecisionSchema,
+  outputSchema: approvalOutputSchema,
+  execute: async ({ inputData, resumeData, suspend, getStepResult }) => {
+    if (!resumeData) {
+      const grounding = getStepResult(groundingGateStep);
+      await suspend({
+        remediation_plan: inputData,
+        safety_status: inputData.safety,
+        grounded_hypotheses: grounding.hypotheses,
+      });
+      // Not reached until resumed; return a placeholder to satisfy typing.
+      return {
+        plan: inputData,
+        decision: { approved: false, engineer_id: "pending" },
+      };
+    }
+    return { plan: inputData, decision: resumeData };
+  },
+});
+
+export const postmortemStep = createStep({
+  id: "generate-postmortem",
+  description:
+    "On approval, generate the post-mortem and upsert the resolved incident (flywheel).",
+  inputSchema: approvalOutputSchema,
+  outputSchema: postmortemOutputSchema,
+  execute: async ({ inputData, getStepResult }) => {
+    const { plan, decision } = inputData;
+
+    if (!decision.approved) {
+      // Rejected — terminate without writing a post-mortem.
+      return {
+        postmortem_id: "",
+        postmortem_text: `Remediation rejected by ${decision.engineer_id}. Reason: ${decision.rejection_reason ?? "not specified"}.`,
+        incident_updated: false,
+        action_items: [],
+        prevention_recommendations: [],
+        quality_score: 0,
+      };
+    }
+
+    const retrieval = getStepResult(retrieveStep);
+    const grounding = getStepResult(groundingGateStep);
+    return generatePostmortem({
+      signature: retrieval.signature,
+      hypotheses: grounding.hypotheses,
+      plan,
+      decision,
+      similarIncidents: retrieval.similarIncidents,
+    });
+  },
+});
+
 export const incidentResponseWorkflow = createWorkflow({
   id: "incident-response",
   inputSchema: incidentInputSchema,
-  outputSchema: safetyCheckedPlanSchema,
+  outputSchema: postmortemOutputSchema,
 })
   .then(ingestStep)
   .then(retrieveStep)
@@ -645,6 +948,13 @@ export const incidentResponseWorkflow = createWorkflow({
   .then(groundingGateStep)
   .then(proposeRemediationStep)
   .then(safetyGateStep)
+  .then(approvalStep)
+  .then(postmortemStep)
   .commit();
 
-export type { RootCauseOutput, RemediationPlan, SafetyCheckedPlan };
+export type {
+  RootCauseOutput,
+  RemediationPlan,
+  SafetyCheckedPlan,
+  PostmortemOutput,
+};

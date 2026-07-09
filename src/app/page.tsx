@@ -1,81 +1,201 @@
-export default function Home() {
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Header } from "./components/Header";
+import { DemoControlPanel } from "./components/DemoControlPanel";
+import { WorkflowProgress } from "./components/WorkflowProgress";
+import { IncidentPanel } from "./components/IncidentPanel";
+import { RootCausePanel } from "./components/RootCausePanel";
+import { RemediationPanel } from "./components/RemediationPanel";
+import { PostMortemView } from "./components/PostMortemView";
+import type { RunState, StatusResponse } from "./components/types";
+
+export default function Dashboard() {
+  const [memoryCount, setMemoryCount] = useState(0);
+  const [run, setRun] = useState<RunState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const runIdRef = useRef<string | null>(null);
+
+  const poll = useCallback(async () => {
+    const runId = runIdRef.current;
+    const url = runId ? `/api/status?runId=${runId}` : "/api/status";
+    try {
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) return;
+      const data = (await res.json()) as StatusResponse;
+      setMemoryCount(data.memoryCount);
+      if (data.run) setRun(data.run);
+    } catch {
+      /* transient — keep last state, dashboard must never crash */
+    }
+  }, []);
+
+  // Poll every 2 seconds.
+  useEffect(() => {
+    poll();
+    const id = setInterval(poll, 2000);
+    return () => clearInterval(id);
+  }, [poll]);
+
+  const triggerScenario = useCallback(
+    async (scenario: string) => {
+      setBusy(true);
+      setRun(null);
+      runIdRef.current = null;
+      try {
+        const res = await fetch("/api/incident", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scenario }),
+        });
+        const data = (await res.json()) as { runId?: string };
+        if (data.runId) {
+          runIdRef.current = data.runId;
+          await poll();
+        }
+      } catch {
+        /* ignore */
+      } finally {
+        setBusy(false);
+      }
+    },
+    [poll]
+  );
+
+  const submitDecision = useCallback(
+    async (approved: boolean, rejectionReason?: string) => {
+      if (!runIdRef.current) return;
+      setBusy(true);
+      try {
+        await fetch("/api/approve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            runId: runIdRef.current,
+            approved,
+            rejection_reason: rejectionReason,
+            engineer_id: "on-call-engineer",
+          }),
+        });
+        await poll();
+      } catch {
+        /* ignore */
+      } finally {
+        setBusy(false);
+      }
+    },
+    [poll]
+  );
+
   return (
-    <main className="flex flex-1 flex-col items-center justify-center px-6 py-16">
-      <div className="w-full max-w-2xl">
-        {/* Brand */}
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 shadow-lg shadow-indigo-900/40">
-            {/* Shield glyph */}
-            <svg
-              viewBox="0 0 24 24"
-              className="h-6 w-6 text-white"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M12 3l7 3v5c0 4.418-3.134 7.567-7 9-3.866-1.433-7-4.582-7-9V6l7-3z" />
-              <path d="M9 12l2 2 4-4" />
-            </svg>
-          </div>
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-white">
-              Vigil
-            </h1>
-            <p className="text-sm text-slate-400">
-              AI-powered Incident Response
+    <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
+      <Header memoryCount={memoryCount} />
+
+      <div className="mt-6 space-y-6">
+        <section>
+          <p className="mb-2 text-xs uppercase tracking-widest text-white/40">
+            Demo Control
+          </p>
+          <DemoControlPanel onTrigger={triggerScenario} busy={busy} />
+        </section>
+
+        {!run && (
+          <div className="rounded-xl border border-dashed border-white/10 bg-white/[0.01] p-10 text-center">
+            <p className="text-white/50">
+              Trigger a scenario above to see Vigil respond in real time.
+            </p>
+            <p className="mt-1 text-xs text-white/30">
+              Grounded root cause · Enkrypt safety gates · human approval ·
+              self-improving memory
             </p>
           </div>
-        </div>
+        )}
 
-        {/* Card */}
-        <div className="mt-8 rounded-2xl border border-white/10 bg-white/[0.02] p-8 backdrop-blur">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-medium text-white">
-                Incident Response Console
-              </h2>
-              <p className="mt-1 text-sm text-slate-400">
-                Grounded root-cause analysis with human-approved remediation.
-              </p>
-            </div>
-
-            {/* Status indicator */}
-            <div className="flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5">
-              <span className="relative flex h-2.5 w-2.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
-              </span>
-              <span className="text-xs font-medium text-emerald-300">
-                System Ready
-              </span>
-            </div>
-          </div>
-
-          <div className="mt-6 grid grid-cols-3 gap-3 text-center">
-            {[
-              { label: "Mastra", detail: "Orchestration" },
-              { label: "Qdrant", detail: "Memory" },
-              { label: "Enkrypt", detail: "Guardrails" },
-            ].map((s) => (
-              <div
-                key={s.label}
-                className="rounded-xl border border-white/5 bg-white/[0.02] px-3 py-4"
-              >
-                <div className="text-sm font-medium text-slate-200">
-                  {s.label}
-                </div>
-                <div className="mt-0.5 text-xs text-slate-500">{s.detail}</div>
+        {run && (
+          <>
+            <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <span className="text-xs uppercase tracking-widest text-white/40">
+                  Workflow
+                </span>
+                <StatusPill run={run} />
               </div>
-            ))}
-          </div>
-        </div>
+              <WorkflowProgress run={run} />
+            </div>
 
-        <p className="mt-6 text-center text-xs text-slate-600">
-          Day 0 · Scaffold verified · Bengaluru finale 12 Jul 2026
-        </p>
+            {run.status === "escalated" && (
+              <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
+                ⚠ No root-cause hypothesis passed the Enkrypt Grounding Gate.
+                Escalated to a human — Vigil will not guess.
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <div className="space-y-6">
+                <IncidentPanel run={run} />
+                <RootCausePanel run={run} />
+              </div>
+              <div className="space-y-6">
+                <RemediationPanel
+                  run={run}
+                  onDecision={submitDecision}
+                  busy={busy}
+                />
+                <PostMortemView run={run} />
+              </div>
+            </div>
+          </>
+        )}
       </div>
+
+      <footer className="mt-10 border-t border-white/10 pt-4 text-center text-xs text-white/30">
+        Vigil — grounded, safe, self-improving incident response · Mastra ·
+        Qdrant · Enkrypt · Groq
+      </footer>
     </main>
+  );
+}
+
+function StatusPill({ run }: { run: RunState }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    running: {
+      label: "Running",
+      cls: "border-sky-500/40 bg-sky-500/10 text-sky-300",
+    },
+    awaiting_approval: {
+      label: "Awaiting Approval",
+      cls: "border-amber-500/40 bg-amber-500/10 text-amber-300",
+    },
+    generating_postmortem: {
+      label: "Writing Post-Mortem",
+      cls: "border-indigo-500/40 bg-indigo-500/10 text-indigo-300",
+    },
+    completed: {
+      label: "Resolved",
+      cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300",
+    },
+    rejected: {
+      label: "Rejected",
+      cls: "border-red-500/40 bg-red-500/10 text-red-300",
+    },
+    escalated: {
+      label: "Escalated",
+      cls: "border-red-500/40 bg-red-500/10 text-red-300",
+    },
+    error: {
+      label: "Error",
+      cls: "border-red-500/40 bg-red-500/10 text-red-300",
+    },
+  };
+  const s = map[run.status] ?? map.running;
+  return (
+    <span
+      className={`rounded-md border px-2.5 py-1 text-xs font-semibold ${s.cls}`}
+    >
+      {s.label}
+      {run.mttrMinutes && run.status === "completed"
+        ? ` · MTTR ${run.mttrMinutes}m`
+        : ""}
+    </span>
   );
 }
