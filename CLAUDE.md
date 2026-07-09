@@ -18,7 +18,7 @@ The app must always be runnable at end of every day. Never commit a broken build
 - Qdrant Cloud (@qdrant/js-client-rest) — REQUIRED by hackathon
 - Enkrypt AI — REQUIRED by hackathon
 - Groq llama-3.1-8b-instant (LLM via @ai-sdk/groq provider)
-- Google text-embedding-004 (embeddings for Qdrant) — Gemini used for embeddings only
+- Google gemini-embedding-001, truncated to 768-dim (embeddings for Qdrant) — Gemini used for embeddings only
 - Deploy: Vercel (frontend) + Qdrant Cloud (DB)
 
 ## Environment variables (.env.local)
@@ -35,7 +35,11 @@ vigil/
 ├── package.json
 ├── src/
 │   ├── mastra/
-│   │   ├── index.ts                    # Mastra instance
+│   │   ├── index.ts                    # Mastra instance (agent + workflows)
+│   │   ├── agent.ts                    # vigilAgent (Groq) — own module to avoid import cycle
+│   │   ├── types.ts                    # Zod schemas + types for all workflow steps
+│   │   ├── ids.ts                      # stableId() — deterministic UUIDs for idempotent upserts
+│   │   ├── embeddings.ts               # Gemini embeddings (gemini-embedding-001 @ 768-dim)
 │   │   ├── workflows/
 │   │   │   └── incidentResponse.ts     # 8-step workflow
 │   │   ├── tools/

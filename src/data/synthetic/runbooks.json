@@ -1,0 +1,162 @@
+[
+  {
+    "runbook_id": "RB-001",
+    "title": "Increase Database Connection Pool Size",
+    "applies_to_services": ["checkout-service", "payments-api", "orders-service", "user-service", "cart-service"],
+    "symptom_pattern": "Connection pool exhausted, acquisition timeouts, active connections pinned at pool maximum during high load with no connection leak.",
+    "steps": [
+      "Confirm active connections are at the configured pool maximum via database and app metrics.",
+      "Verify the database has spare max_connections headroom before increasing the pool.",
+      "Raise the application maximumPoolSize incrementally (e.g. 20 -> 40 -> 60).",
+      "Set a bounded connection-acquisition timeout (e.g. 5s) so callers fail fast instead of hanging.",
+      "Redeploy or hot-reload config and watch pool utilization and p99 latency recover."
+    ],
+    "risk_level": "low",
+    "requires_approval": false,
+    "success_rate": 0.9
+  },
+  {
+    "runbook_id": "RB-002",
+    "title": "Recover Leaked Database Connections via Rolling Restart",
+    "applies_to_services": ["user-service", "payments-api", "orders-service", "checkout-service"],
+    "symptom_pattern": "Active connections rise gradually with no traffic spike and are never returned to idle, indicating a connection leak exhausting the pool.",
+    "steps": [
+      "Identify the leaking service by correlating rising idle-in-transaction connections with a specific app.",
+      "Perform a rolling restart to reclaim leaked connections without full downtime.",
+      "Enable pool leak detection (e.g. leakDetectionThreshold) to surface the offending code path.",
+      "Patch the code to release connections in a finally/using block.",
+      "Monitor connection counts over several hours to confirm the leak is resolved."
+    ],
+    "risk_level": "medium",
+    "requires_approval": false,
+    "success_rate": 0.82
+  },
+  {
+    "runbook_id": "RB-003",
+    "title": "Mitigate Memory Leak with Rolling Restart and Cache Bounds",
+    "applies_to_services": ["notification-service", "search-service", "api-gateway", "recommendation-service"],
+    "symptom_pattern": "Steadily climbing heap or RSS memory, increasing GC pauses, and eventual OOMKilled restart loops without a corresponding traffic increase.",
+    "steps": [
+      "Capture a heap dump or memory profile before restarting for later root-cause analysis.",
+      "Perform a rolling restart to relieve immediate memory pressure and stop OOM loops.",
+      "Identify the unbounded structure (cache, queue, or listener registry) from the profile.",
+      "Add a hard size cap with LRU/TTL eviction or backpressure to bound growth.",
+      "Deploy the fix and watch memory plateau over a full traffic cycle."
+    ],
+    "risk_level": "medium",
+    "requires_approval": false,
+    "success_rate": 0.85
+  },
+  {
+    "runbook_id": "RB-004",
+    "title": "Renew and Deploy an Expired TLS Certificate",
+    "applies_to_services": ["api-gateway", "auth-service", "payments-api", "orders-service", "notification-service"],
+    "symptom_pattern": "Sudden TLS handshake failures or certificate-expired errors, often at a clean time boundary, affecting all clients of an endpoint.",
+    "steps": [
+      "Confirm the expiry with openssl s_client / x509 -enddate against the affected host.",
+      "Issue a renewed certificate via ACME or the internal CA.",
+      "Deploy the new certificate and private key to the ingress or service secret.",
+      "Reload the ingress/proxy and verify the served certificate chain and validity dates.",
+      "Automate renewal (cert-manager) and add expiry alerting at least 30 days out."
+    ],
+    "risk_level": "medium",
+    "requires_approval": true,
+    "success_rate": 0.95
+  },
+  {
+    "runbook_id": "RB-005",
+    "title": "Roll Back Configuration to Last Known-Good",
+    "applies_to_services": ["api-gateway", "inventory-service", "orders-service", "user-service", "search-service"],
+    "symptom_pattern": "Behavior or performance regression that correlates with a config or feature-flag change rather than a code deploy; environment config has drifted from baseline.",
+    "steps": [
+      "Diff current config against the last known-good version in source control.",
+      "Identify the specific changed key(s) responsible for the regression.",
+      "Revert the config or feature flag to the last known-good value.",
+      "Apply the change and confirm the affected metric returns to baseline.",
+      "Add validation gates and drift detection to prevent recurrence."
+    ],
+    "risk_level": "medium",
+    "requires_approval": true,
+    "success_rate": 0.9
+  },
+  {
+    "runbook_id": "RB-006",
+    "title": "Fail Over DNS to a Secondary Resolver",
+    "applies_to_services": ["orders-service", "payments-api", "user-service", "api-gateway"],
+    "symptom_pattern": "DNS resolution timeouts or NXDOMAIN for internal/external hostnames, widespread connection errors, resolver health checks failing.",
+    "steps": [
+      "Confirm resolution failures with dig/nslookup against the primary resolver.",
+      "Switch resolv.conf or the service mesh DNS config to the secondary resolver.",
+      "Flush negative DNS caches across affected hosts.",
+      "Verify hostnames now resolve and connectivity is restored.",
+      "Add a redundant secondary DNS provider and lower record TTLs where appropriate."
+    ],
+    "risk_level": "medium",
+    "requires_approval": false,
+    "success_rate": 0.83
+  },
+  {
+    "runbook_id": "RB-007",
+    "title": "Enable Circuit Breaker for a Degraded Upstream",
+    "applies_to_services": ["payments-api", "checkout-service", "recommendation-service", "shipping-service"],
+    "symptom_pattern": "A downstream dependency slows or errors, causing request pile-up, thread starvation, and cascading timeouts in the calling service.",
+    "steps": [
+      "Identify the degraded upstream from dependency latency/error dashboards.",
+      "Enable or tune a circuit breaker to open on the upstream's error/latency threshold.",
+      "Tighten the upstream call timeout so callers fail fast instead of queuing.",
+      "Provide a fallback (cached data or graceful degradation) while the breaker is open.",
+      "Monitor recovery and let the breaker half-open to test upstream health."
+    ],
+    "risk_level": "low",
+    "requires_approval": false,
+    "success_rate": 0.8
+  },
+  {
+    "runbook_id": "RB-008",
+    "title": "Roll Back a Bad Deployment to the Previous Release",
+    "applies_to_services": ["user-service", "checkout-service", "inventory-service", "orders-service", "auth-service"],
+    "symptom_pattern": "Error rate or latency spikes immediately after a deploy; the regression correlates directly with a specific release version.",
+    "steps": [
+      "Confirm the regression started at the deploy timestamp of the suspect release.",
+      "Halt the rollout/pipeline to prevent further propagation.",
+      "Roll back to the previous known-good release via the deployment controller.",
+      "If the release included a schema migration, revert it in a backward-compatible way.",
+      "Verify error rate and latency return to baseline, then post-mortem the regression."
+    ],
+    "risk_level": "high",
+    "requires_approval": true,
+    "success_rate": 0.93
+  },
+  {
+    "runbook_id": "RB-009",
+    "title": "Scale Out Service Replicas to Absorb Load",
+    "applies_to_services": ["cart-service", "checkout-service", "api-gateway", "search-service", "orders-service"],
+    "symptom_pattern": "Concurrency or traffic exceeds current capacity (e.g. flash sale), saturating pools, CPU, or throughput on the existing replica count.",
+    "steps": [
+      "Confirm the bottleneck is capacity, not a leak or a single hot dependency.",
+      "Increase the replica count (HPA target or manual scale) to spread load.",
+      "Ensure downstream databases have connection headroom for the added replicas.",
+      "Watch per-instance utilization normalize as new replicas take traffic.",
+      "Right-size autoscaling thresholds to handle similar future spikes."
+    ],
+    "risk_level": "low",
+    "requires_approval": false,
+    "success_rate": 0.78
+  },
+  {
+    "runbook_id": "RB-010",
+    "title": "Promote a Read Replica to Primary (Database Failover)",
+    "applies_to_services": ["postgres-primary", "mysql-orders", "payments-api", "orders-service"],
+    "symptom_pattern": "Primary database is unhealthy or unreachable and cannot be recovered in place; application connection pools cannot acquire working connections.",
+    "steps": [
+      "Confirm the primary is genuinely unrecoverable and replication lag is minimal.",
+      "Fence the old primary to prevent split-brain writes.",
+      "Promote the healthiest read replica to primary.",
+      "Repoint application connection strings/DNS to the new primary and recycle pools.",
+      "Verify writes succeed, then rebuild a new replica from the promoted primary."
+    ],
+    "risk_level": "critical",
+    "requires_approval": true,
+    "success_rate": 0.7
+  }
+]
