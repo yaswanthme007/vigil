@@ -202,12 +202,16 @@ export async function checkDestructiveAction(
   remediation: string
 ): Promise<DestructiveCheck> {
   const base = heuristicDestructive(remediation);
+  // Reasons are tagged by source so the dashboard can attribute the block:
+  // [POLICY]  = Vigil's destructive-action heuristic (DROP/TRUNCATE/disable-auth…)
+  // [ENKRYPT] = Enkrypt threat scan (prompt-injection / toxicity)
+  const policyReasons = base.reasons.map((r) => `[POLICY] ${r}`);
 
   if (!enkryptEnabled()) {
     console.warn(
       "Enkrypt stub active — using local destructive-action heuristic (set ENKRYPT_API_KEY for real detection)."
     );
-    return base;
+    return { ...base, reasons: policyReasons };
   }
 
   try {
@@ -224,16 +228,16 @@ export async function checkDestructiveAction(
     const enkryptReasons: string[] = [];
 
     if (Number(summary.injection_attack) === 1) {
-      enkryptReasons.push("Enkrypt: prompt-injection detected");
+      enkryptReasons.push("[ENKRYPT] prompt-injection detected");
     }
     const toxicity = summary.toxicity;
     if (Array.isArray(toxicity) && toxicity.length > 0) {
-      enkryptReasons.push(`Enkrypt: toxic content (${toxicity.join(", ")})`);
+      enkryptReasons.push(`[ENKRYPT] toxic content (${toxicity.join(", ")})`);
     } else if (typeof toxicity === "number" && toxicity === 1) {
-      enkryptReasons.push("Enkrypt: toxic content detected");
+      enkryptReasons.push("[ENKRYPT] toxic content detected");
     }
 
-    const reasons = [...base.reasons, ...enkryptReasons];
+    const reasons = [...policyReasons, ...enkryptReasons];
     const blast_radius = Math.min(
       100,
       base.blast_radius + enkryptReasons.length * 20
@@ -249,7 +253,7 @@ export async function checkDestructiveAction(
       "[enkrypt] detect API failed — falling back to heuristic:",
       err
     );
-    return base;
+    return { ...base, reasons: policyReasons };
   }
 }
 

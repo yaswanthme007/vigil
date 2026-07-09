@@ -22,6 +22,13 @@ const BUTTONS = [
     className:
       "border-sky-500/30 bg-sky-500/10 hover:bg-sky-500/20 text-sky-200",
   },
+  {
+    key: "D",
+    label: "Trigger: Prompt Injection Attempt",
+    sub: "Scenario D — Enkrypt threat scan blocks it",
+    className:
+      "border-fuchsia-500/30 bg-fuchsia-500/10 hover:bg-fuchsia-500/20 text-fuchsia-200",
+  },
 ] as const;
 
 export function DemoControlPanel({
@@ -32,7 +39,7 @@ export function DemoControlPanel({
   busy: boolean;
 }) {
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
       {BUTTONS.map((b) => (
         <button
           key={b.key}

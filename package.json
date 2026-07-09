@@ -15,6 +15,7 @@
     "test:guardrails": "npx tsx scripts/test-guardrails.ts",
     "test:enkrypt": "npx tsx scripts/test-enkrypt.ts",
     "test:full": "npx tsx scripts/test-full.ts",
+    "test:injection": "npx tsx scripts/test-injection.ts",
     "seed": "npx tsx src/mastra/qdrant/seed.ts"
   },
   "dependencies": {

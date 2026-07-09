@@ -41,9 +41,15 @@ export function RemediationPanel({
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-2">
           {blocked ? (
-            <EnkryptBadge kind="blocked" label="Destructive Action Blocked" />
+            <EnkryptBadge
+              kind="blocked"
+              label="Blocked — destructive-action policy + Enkrypt threat scan"
+            />
           ) : (
-            <EnkryptBadge kind="safe" label="Safety Checked" />
+            <EnkryptBadge
+              kind="safe"
+              label="Safety Gate — destructive-action policy + Enkrypt threat scan"
+            />
           )}
           {plan.requires_approval && (
             <span className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-300">
@@ -60,7 +66,7 @@ export function RemediationPanel({
         {blocked && (
           <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3">
             <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-red-300">
-              Enkrypt Safety Gate — reasons
+              Safety Gate — reasons (tagged by source)
             </p>
             <ul className="list-inside list-disc space-y-0.5 text-xs text-red-200/90">
               {plan.safety.reasons.map((r, i) => (
