@@ -218,8 +218,8 @@ pre,
 }
 /* Full-width blocked layout: the seal grows to own the stage. */
 .vigil-seal--lg {
-  width: 250px;
-  height: 250px;
+  width: 300px;
+  height: 300px;
 }
 .vigil-seal::before {
   content: "";

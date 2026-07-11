@@ -65,7 +65,7 @@ function SafetySeal({ arc, large = false }: { arc: string; large?: boolean }) {
         <div className={large ? "px-8" : "px-6"}>
           <div
             className={`font-semibold leading-none tracking-[0.14em] text-red-300 [text-shadow:0_0_22px_rgba(239,68,68,0.45)] ${
-              large ? "text-[40px]" : "text-[30px]"
+              large ? "text-[44px]" : "text-[30px]"
             }`}
           >
             BLOCKED
@@ -280,28 +280,28 @@ export function RemediationPanel({
       </p>
     );
 
-    /* Full content width — the seal owns the stage; the reasoning flows beneath
-       it in a comfortable reading measure (two columns on wide viewports). */
+    /* Full content width — the seal is centered across the whole column and
+       owns the stage; everything else flows beneath it in one tight, centered
+       reading measure (~720px). No left-aligned panel header to pull the eye. */
     if (wide) {
       return (
-        <Card title="Proposed Remediation" step={5} accent="#fca5a5">
-          <div className="space-y-7">
-            <SafetySeal arc={blockedGateArc(reasons)} large />
-            <p className="mx-auto max-w-xl text-balance text-center text-base leading-relaxed text-red-100/85">
+        <section className="rounded-xl border border-white/[0.08] bg-white/[0.022] px-5 py-8 sm:px-8 sm:py-10">
+          <p className="mb-7 text-center text-[11px] font-semibold uppercase tracking-[0.22em] text-red-300/70">
+            Proposed Remediation
+          </p>
+          <SafetySeal arc={blockedGateArc(reasons)} large />
+          <div className="mx-auto mt-2 max-w-[720px] space-y-6">
+            <p className="text-balance text-center text-base leading-relaxed text-red-100/85">
               {blockedLead(reasons)}
             </p>
-            <div className="mx-auto grid max-w-4xl gap-x-10 gap-y-6 lg:grid-cols-2">
-              {whyBlock}
-              {neutralizedBlock}
-            </div>
-            <div className="mx-auto max-w-2xl">
-              {metaBlock}
-              {actionsBlock}
-              {rejectEditor}
-              {closingBlock}
-            </div>
+            {whyBlock}
+            {neutralizedBlock}
+            {metaBlock}
+            {actionsBlock}
+            {rejectEditor}
+            {closingBlock}
           </div>
-        </Card>
+        </section>
       );
     }
 

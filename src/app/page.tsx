@@ -32,6 +32,13 @@ export default function Dashboard() {
   // Once a run is cleared client-side, ignore the server's "latest run" until a
   // new scenario is triggered — so Reset returns to idle and stays there.
   const dismissedRef = useRef(false);
+  // Launching guards (refs so the stable poll callback can read them):
+  //  - launchingRef mirrors the launching state for poll's logic.
+  //  - launchAtRunIdRef holds the runId visible at click-time, so we can reject
+  //    the previous run bleeding back through /api/status (no runId → latestRun)
+  //    until the freshly-created run's id arrives.
+  const launchingRef = useRef(false);
+  const launchAtRunIdRef = useRef<string | null>(null);
 
   const poll = useCallback(async () => {
     const runId = runIdRef.current;
@@ -42,10 +49,25 @@ export default function Dashboard() {
       const data = (await res.json()) as StatusResponse;
       setMemoryCount(data.memoryCount);
       if (dismissedRef.current) return; // idle after Reset — keep run cleared
-      if (data.run) {
-        setRun(data.run);
-        setLaunching(false); // the run has arrived — leave the launching state
+
+      if (launchingRef.current) {
+        // While a new run spins up, accept ONLY the freshly-created run. Ignore
+        // the previous run bleeding through /api/status (no runId → latestRun)
+        // so the UI never flashes the old scenario's steps/panels.
+        const r = data.run;
+        const isNewRun =
+          !!r &&
+          r.runId !== launchAtRunIdRef.current &&
+          r.runId === runIdRef.current;
+        if (isNewRun) {
+          setRun(r);
+          launchingRef.current = false;
+          setLaunching(false);
+        }
+        return; // otherwise keep the "initializing incident…" scaffold up
       }
+
+      if (data.run) setRun(data.run);
     } catch {
       /* transient — keep last state, dashboard must never crash */
     }
@@ -61,6 +83,10 @@ export default function Dashboard() {
   const triggerScenario = useCallback(
     async (scenario: string) => {
       setBusy(true);
+      // Remember the run visible at click-time so poll can reject it bleeding
+      // back through latestRun, then enter the launching state.
+      launchAtRunIdRef.current = runIdRef.current;
+      launchingRef.current = true;
       setLaunching(true); // hold the run view up while the new run spins up
       setRun(null);
       runIdRef.current = null;
@@ -74,11 +100,13 @@ export default function Dashboard() {
         const data = (await res.json()) as { runId?: string };
         if (data.runId) {
           runIdRef.current = data.runId;
-          await poll(); // sets the run and clears launching
+          await poll(); // accepts the new run and clears launching
         } else {
+          launchingRef.current = false;
           setLaunching(false); // no run came back — fall back to idle
         }
       } catch {
+        launchingRef.current = false;
         setLaunching(false); // request failed — fall back to idle
       } finally {
         setBusy(false);
@@ -138,6 +166,7 @@ export default function Dashboard() {
   const resetRun = useCallback(() => {
     runIdRef.current = null;
     dismissedRef.current = true;
+    launchingRef.current = false;
     setLaunching(false);
     setRun(null);
   }, []);
