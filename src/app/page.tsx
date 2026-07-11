@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Header } from "./components/Header";
 import { DemoControlPanel } from "./components/DemoControlPanel";
+import { IdleBriefing } from "./components/IdleBriefing";
 import { WorkflowProgress } from "./components/WorkflowProgress";
 import { IncidentPanel } from "./components/IncidentPanel";
 import { RootCausePanel } from "./components/RootCausePanel";
@@ -141,26 +142,24 @@ export default function Dashboard() {
       <Header memoryCount={memoryCount} />
 
       <div className="mt-6 space-y-6">
-        <section>
-          <p className="mb-2 text-xs uppercase tracking-widest text-white/40">
-            Demo Control
-          </p>
-          <DemoControlPanel
-            onTrigger={triggerScenario}
-            busy={busy || runActive}
-          />
-        </section>
-
         {!run && (
-          <div className="rounded-xl border border-dashed border-white/10 bg-white/[0.01] p-10 text-center">
-            <p className="text-white/50">
-              Trigger a scenario above to see Vigil respond in real time.
+          <IdleBriefing
+            onTrigger={triggerScenario}
+            memoryCount={memoryCount}
+            busy={busy}
+          />
+        )}
+
+        {run && (
+          <section>
+            <p className="mb-2 text-xs uppercase tracking-widest text-white/40">
+              Demo Control
             </p>
-            <p className="mt-1 text-xs text-white/30">
-              Grounded root cause · Enkrypt safety gates · human approval ·
-              self-improving memory
-            </p>
-          </div>
+            <DemoControlPanel
+              onTrigger={triggerScenario}
+              busy={busy || runActive}
+            />
+          </section>
         )}
 
         {run && (

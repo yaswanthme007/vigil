@@ -86,6 +86,22 @@ pre,
   animation: vigil-hold 2.6s ease-in-out infinite;
 }
 
+/* rise: the idle briefing's first-load entrance — sections fade up in a gentle
+   staggered sequence (via inline animation-delay). Collapsed by reduced-motion. */
+@keyframes vigil-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-rise {
+  animation: vigil-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 /* roll: the memory counter ticking over when a post-mortem is saved —
    the new value rolls up into place. One beat, no sparkle. */
 @keyframes vigil-roll {
