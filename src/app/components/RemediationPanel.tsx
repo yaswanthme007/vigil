@@ -51,22 +51,38 @@ function LockIcon({ className }: { className?: string }) {
  *  HTTP 403); the lower ring legend is DERIVED from the reason sources, so it
  *  never names Enkrypt unless Enkrypt actually flagged the remediation. Pure
  *  CSS/SVG, existing font stack. */
-function SafetySeal({ arc }: { arc: string }) {
+function SafetySeal({ arc, large = false }: { arc: string; large?: boolean }) {
   return (
     <div className="grid place-items-center py-1">
-      <div className="vigil-seal">
-        <span className="pointer-events-none absolute inset-x-0 top-[17px] text-center font-mono text-[8.5px] uppercase tracking-[0.32em] text-red-300/70">
+      <div className={`vigil-seal ${large ? "vigil-seal--lg" : ""}`}>
+        <span
+          className={`pointer-events-none absolute inset-x-0 text-center font-mono uppercase tracking-[0.32em] text-red-300/70 ${
+            large ? "top-[24px] text-[10px]" : "top-[17px] text-[8.5px]"
+          }`}
+        >
           Safety Gate
         </span>
-        <div className="px-6">
-          <div className="text-[30px] font-semibold leading-none tracking-[0.14em] text-red-300 [text-shadow:0_0_22px_rgba(239,68,68,0.45)]">
+        <div className={large ? "px-8" : "px-6"}>
+          <div
+            className={`font-semibold leading-none tracking-[0.14em] text-red-300 [text-shadow:0_0_22px_rgba(239,68,68,0.45)] ${
+              large ? "text-[40px]" : "text-[30px]"
+            }`}
+          >
             BLOCKED
           </div>
-          <div className="mx-auto mt-2 max-w-[8.5rem] font-mono text-[8px] uppercase leading-[1.4] tracking-[0.22em] text-red-200/70">
+          <div
+            className={`mx-auto mt-2 font-mono uppercase leading-[1.4] tracking-[0.22em] text-red-200/70 ${
+              large ? "max-w-[11rem] text-[9px]" : "max-w-[8.5rem] text-[8px]"
+            }`}
+          >
             Human approval cannot override
           </div>
         </div>
-        <span className="pointer-events-none absolute inset-x-0 bottom-[17px] text-center font-mono text-[8.5px] uppercase tracking-[0.26em] text-red-300/55">
+        <span
+          className={`pointer-events-none absolute inset-x-0 text-center font-mono uppercase tracking-[0.26em] text-red-300/55 ${
+            large ? "bottom-[24px] text-[10px]" : "bottom-[17px] text-[8.5px]"
+          }`}
+        >
           {arc}
         </span>
       </div>
@@ -98,11 +114,14 @@ export function RemediationPanel({
   onDecision,
   onEscalate,
   busy,
+  wide = false,
 }: {
   run: RunState;
   onDecision: (approved: boolean, rejectionReason?: string) => void;
   onEscalate: () => void;
   busy: boolean;
+  /** Full content width — the blocked state promoted to own the stage. */
+  wide?: boolean;
 }) {
   const plan = run.remediation;
   const [rejecting, setRejecting] = useState(false);
@@ -157,113 +176,149 @@ export function RemediationPanel({
   /* ————————————————— BLOCKED: the hero moment ————————————————— */
   if (blocked) {
     const reasons = plan.safety.reasons;
+
+    /* Why — reasons enumerated, each tagged by source. */
+    const whyBlock = (
+      <div>
+        <p className="mb-2 text-xs uppercase tracking-wide text-white/40">
+          Why it was blocked
+        </p>
+        <ul className="space-y-1.5">
+          {reasons.map((r, i) => {
+            const { source, text } = parseReason(r);
+            return (
+              <li key={i} className="flex items-start gap-2 text-sm text-white/75">
+                <SourceTag source={source} />
+                <span className="leading-relaxed">{text}</span>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    );
+
+    /* The dangerous fix, visibly neutralized and locked. */
+    const neutralizedBlock = (
+      <div>
+        <div className="mb-1.5 flex items-center gap-1.5 text-white/40">
+          <LockIcon className="h-3.5 w-3.5" />
+          <p className="text-xs uppercase tracking-[0.18em]">
+            Neutralized — will not execute
+          </p>
+        </div>
+        <ol className="space-y-1.5">
+          {plan.steps.map((s, i) => (
+            <li
+              key={i}
+              className="flex items-start gap-2 rounded-md border border-white/[0.06] bg-white/[0.012] px-2.5 py-1.5"
+            >
+              <span className="mt-0.5 font-mono text-xs tabular-nums text-white/25 line-through">
+                {i + 1}.
+              </span>
+              <span className="flex-1 text-sm text-white/35 line-through decoration-white/25">
+                {s}
+              </span>
+              <LockIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-white/30" />
+            </li>
+          ))}
+        </ol>
+      </div>
+    );
+
+    const metaBlock = (
+      <div className="space-y-5">
+        <BlastRadiusMeter score={plan.blast_radius_score} scale />
+        <div className="flex flex-wrap items-center gap-2 text-xs text-white/50">
+          <span>Impacts:</span>
+          {plan.affected_services.map((s) => (
+            <ServiceBadge key={s} name={s} />
+          ))}
+        </div>
+        <div>
+          <p className="mb-1 text-xs uppercase tracking-wide text-white/40">
+            Rollback
+          </p>
+          <p className="text-xs text-white/60">{plan.rollback_procedure}</p>
+        </div>
+      </div>
+    );
+
+    /* Approve is absent by construction — its slot is shown withheld, so the
+       room sees the refusal rather than a missing button. */
+    const actionsBlock = actionable && !rejecting && (
+      <div className="space-y-2 border-t border-white/10 pt-4">
+        <div
+          aria-disabled="true"
+          title="Approval is withheld — a blocked remediation is structurally unapprovable (the engine refuses it, HTTP 403)."
+          className="flex w-full select-none items-center justify-center gap-2 rounded-lg border border-dashed border-white/[0.14] bg-transparent px-4 py-2 font-mono text-xs uppercase tracking-[0.16em] text-white/25"
+        >
+          <ProhibitIcon className="h-3.5 w-3.5" />
+          Approve · Withheld
+        </div>
+        <div className="flex gap-2">
+          <button
+            disabled={busy}
+            onClick={() => setRejecting(true)}
+            className="flex-1 rounded-lg border border-white/12 bg-white/[0.04] px-4 py-2 text-sm font-semibold text-white/70 transition-colors duration-150 ease-out hover:bg-white/[0.08] disabled:opacity-40"
+          >
+            Reject
+          </button>
+          <button
+            disabled={busy}
+            onClick={onEscalate}
+            className="flex-1 rounded-lg border border-amber-500/40 bg-amber-500/15 px-4 py-2 text-sm font-semibold text-amber-200 transition-colors duration-150 ease-out hover:bg-amber-500/25 disabled:opacity-40"
+          >
+            Escalate to human
+          </button>
+        </div>
+      </div>
+    );
+
+    const closingBlock = (
+      <p className="border-t border-white/10 pt-3 text-center text-sm italic text-white/45">
+        Vigil will not apply what it cannot undo.
+      </p>
+    );
+
+    /* Full content width — the seal owns the stage; the reasoning flows beneath
+       it in a comfortable reading measure (two columns on wide viewports). */
+    if (wide) {
+      return (
+        <Card title="Proposed Remediation" step={5} accent="#fca5a5">
+          <div className="space-y-7">
+            <SafetySeal arc={blockedGateArc(reasons)} large />
+            <p className="mx-auto max-w-xl text-balance text-center text-base leading-relaxed text-red-100/85">
+              {blockedLead(reasons)}
+            </p>
+            <div className="mx-auto grid max-w-4xl gap-x-10 gap-y-6 lg:grid-cols-2">
+              {whyBlock}
+              {neutralizedBlock}
+            </div>
+            <div className="mx-auto max-w-2xl">
+              {metaBlock}
+              {actionsBlock}
+              {rejectEditor}
+              {closingBlock}
+            </div>
+          </div>
+        </Card>
+      );
+    }
+
+    /* Narrow (two-column layouts) — the original single-column blocked panel. */
     return (
       <Card title="Proposed Remediation" step={5} accent="#fca5a5">
         <div className="space-y-5">
-          {/* The seal owns the panel. */}
           <SafetySeal arc={blockedGateArc(reasons)} />
-
-          {/* Attributed lead — derived from the sources actually present. */}
           <p className="text-center text-sm leading-relaxed text-red-100/85">
             {blockedLead(reasons)}
           </p>
-
-          {/* Why — reasons enumerated, each tagged by source. */}
-          <div>
-            <p className="mb-2 text-xs uppercase tracking-wide text-white/40">
-              Why it was blocked
-            </p>
-            <ul className="space-y-1.5">
-              {reasons.map((r, i) => {
-                const { source, text } = parseReason(r);
-                return (
-                  <li key={i} className="flex items-start gap-2 text-sm text-white/75">
-                    <SourceTag source={source} />
-                    <span className="leading-relaxed">{text}</span>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-
-          {/* The dangerous fix, visibly neutralized and locked. */}
-          <div>
-            <div className="mb-1.5 flex items-center gap-1.5 text-white/40">
-              <LockIcon className="h-3.5 w-3.5" />
-              <p className="text-xs uppercase tracking-[0.18em]">
-                Neutralized — will not execute
-              </p>
-            </div>
-            <ol className="space-y-1.5">
-              {plan.steps.map((s, i) => (
-                <li
-                  key={i}
-                  className="flex items-start gap-2 rounded-md border border-white/[0.06] bg-white/[0.012] px-2.5 py-1.5"
-                >
-                  <span className="mt-0.5 font-mono text-xs tabular-nums text-white/25 line-through">
-                    {i + 1}.
-                  </span>
-                  <span className="flex-1 text-sm text-white/35 line-through decoration-white/25">
-                    {s}
-                  </span>
-                  <LockIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-white/30" />
-                </li>
-              ))}
-            </ol>
-          </div>
-
-          <BlastRadiusMeter score={plan.blast_radius_score} scale />
-
-          <div className="flex flex-wrap items-center gap-2 text-xs text-white/50">
-            <span>Impacts:</span>
-            {plan.affected_services.map((s) => (
-              <ServiceBadge key={s} name={s} />
-            ))}
-          </div>
-
-          <div>
-            <p className="mb-1 text-xs uppercase tracking-wide text-white/40">
-              Rollback
-            </p>
-            <p className="text-xs text-white/60">{plan.rollback_procedure}</p>
-          </div>
-
-          {/* Approve is absent by construction — its slot is shown withheld, so
-             the room sees the refusal rather than a missing button. */}
-          {actionable && !rejecting && (
-            <div className="space-y-2 border-t border-white/10 pt-4">
-              <div
-                aria-disabled="true"
-                title="Approval is withheld — a blocked remediation is structurally unapprovable (the engine refuses it, HTTP 403)."
-                className="flex w-full select-none items-center justify-center gap-2 rounded-lg border border-dashed border-white/[0.14] bg-transparent px-4 py-2 font-mono text-xs uppercase tracking-[0.16em] text-white/25"
-              >
-                <ProhibitIcon className="h-3.5 w-3.5" />
-                Approve · Withheld
-              </div>
-              <div className="flex gap-2">
-                <button
-                  disabled={busy}
-                  onClick={() => setRejecting(true)}
-                  className="flex-1 rounded-lg border border-white/12 bg-white/[0.04] px-4 py-2 text-sm font-semibold text-white/70 transition-colors duration-150 ease-out hover:bg-white/[0.08] disabled:opacity-40"
-                >
-                  Reject
-                </button>
-                <button
-                  disabled={busy}
-                  onClick={onEscalate}
-                  className="flex-1 rounded-lg border border-amber-500/40 bg-amber-500/15 px-4 py-2 text-sm font-semibold text-amber-200 transition-colors duration-150 ease-out hover:bg-amber-500/25 disabled:opacity-40"
-                >
-                  Escalate to human
-                </button>
-              </div>
-            </div>
-          )}
+          {whyBlock}
+          {neutralizedBlock}
+          {metaBlock}
+          {actionsBlock}
           {rejectEditor}
-
-          {/* The closing principle. */}
-          <p className="border-t border-white/10 pt-3 text-center text-sm italic text-white/45">
-            Vigil will not apply what it cannot undo.
-          </p>
+          {closingBlock}
         </div>
       </Card>
     );

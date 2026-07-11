@@ -25,6 +25,9 @@ export default function Dashboard() {
   const [memoryCount, setMemoryCount] = useState(0);
   const [run, setRun] = useState<RunState | null>(null);
   const [busy, setBusy] = useState(false);
+  // Set the instant a scenario is triggered, cleared when the new run arrives.
+  // Bridges the gap where run is briefly null so the briefing never flashes.
+  const [launching, setLaunching] = useState(false);
   const runIdRef = useRef<string | null>(null);
   // Once a run is cleared client-side, ignore the server's "latest run" until a
   // new scenario is triggered — so Reset returns to idle and stays there.
@@ -39,7 +42,10 @@ export default function Dashboard() {
       const data = (await res.json()) as StatusResponse;
       setMemoryCount(data.memoryCount);
       if (dismissedRef.current) return; // idle after Reset — keep run cleared
-      if (data.run) setRun(data.run);
+      if (data.run) {
+        setRun(data.run);
+        setLaunching(false); // the run has arrived — leave the launching state
+      }
     } catch {
       /* transient — keep last state, dashboard must never crash */
     }
@@ -55,6 +61,7 @@ export default function Dashboard() {
   const triggerScenario = useCallback(
     async (scenario: string) => {
       setBusy(true);
+      setLaunching(true); // hold the run view up while the new run spins up
       setRun(null);
       runIdRef.current = null;
       dismissedRef.current = false; // a new run should render again
@@ -67,10 +74,12 @@ export default function Dashboard() {
         const data = (await res.json()) as { runId?: string };
         if (data.runId) {
           runIdRef.current = data.runId;
-          await poll();
+          await poll(); // sets the run and clears launching
+        } else {
+          setLaunching(false); // no run came back — fall back to idle
         }
       } catch {
-        /* ignore */
+        setLaunching(false); // request failed — fall back to idle
       } finally {
         setBusy(false);
       }
@@ -129,6 +138,7 @@ export default function Dashboard() {
   const resetRun = useCallback(() => {
     runIdRef.current = null;
     dismissedRef.current = true;
+    setLaunching(false);
     setRun(null);
   }, []);
 
@@ -136,13 +146,16 @@ export default function Dashboard() {
   // A run is "active" while it is in progress or awaiting a human — no new
   // scenario may be started on top of it.
   const runActive = Boolean(run) && !terminal;
+  // Show the run view whenever a run exists OR one is spinning up. The briefing
+  // appears only when genuinely idle (first load / after New incident).
+  const showRun = launching || Boolean(run);
 
   return (
     <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
       <Header memoryCount={memoryCount} />
 
       <div className="mt-6 space-y-6">
-        {!run && (
+        {!showRun && (
           <IdleBriefing
             onTrigger={triggerScenario}
             memoryCount={memoryCount}
@@ -150,7 +163,7 @@ export default function Dashboard() {
           />
         )}
 
-        {run && (
+        {showRun && (
           <section>
             <p className="mb-2 text-xs uppercase tracking-widest text-white/40">
               Demo Control
@@ -160,6 +173,32 @@ export default function Dashboard() {
               busy={busy || runActive}
             />
           </section>
+        )}
+
+        {/* Launching — a new run is spinning up. A minimal scaffold holds the
+            run layout so the briefing never flashes back in between scenarios. */}
+        {showRun && !run && (
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-[210px_1fr]">
+            <aside className="lg:sticky lg:top-6 lg:self-start">
+              <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
+                <p className="mb-3 text-[10px] uppercase tracking-[0.2em] text-white/35">
+                  Workflow
+                </p>
+                <div className="mb-5">
+                  <span className="inline-flex items-center gap-2 rounded-md border border-white/12 bg-white/[0.04] px-2.5 py-1 text-xs font-semibold text-white/60">
+                    <span className="h-1.5 w-1.5 rounded-full bg-white/50 animate-breathe" />
+                    Initializing
+                  </span>
+                </div>
+                <p className="text-xs text-white/40">Initializing incident…</p>
+              </div>
+            </aside>
+            <div className="space-y-6">
+              <div className="rounded-xl border border-white/[0.08] bg-white/[0.022] p-10 text-center text-sm text-white/40">
+                Initializing incident…
+              </div>
+            </div>
+          </div>
         )}
 
         {run && (
@@ -178,7 +217,8 @@ export default function Dashboard() {
               </div>
             </aside>
 
-            {/* RIGHT — banners flow above the panels in the remaining width. */}
+            {/* RIGHT — content. A blocked run promotes the remediation panel to
+                full content width; safe / awaiting keep the two-column layout. */}
             <div className="space-y-6">
               {run.status === "escalated" && (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
@@ -188,41 +228,58 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {run.status === "blocked" && (
-                <div className="flex items-start gap-2.5 rounded-xl border border-red-500/35 bg-red-500/[0.08] px-4 py-3 text-sm text-red-200">
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.75"
-                    strokeLinecap="round"
-                    className="mt-0.5 h-4 w-4 shrink-0 text-red-400/90"
-                    aria-hidden
-                  >
-                    <circle cx="12" cy="12" r="9" />
-                    <line x1="5.64" y1="5.64" x2="18.36" y2="18.36" />
-                  </svg>
-                  <span>
-                    {blockedByText(run.remediation?.safety.reasons ?? [])}
-                  </span>
-                </div>
-              )}
+              {run.status === "blocked" ? (
+                <>
+                  <div className="flex items-start gap-2.5 rounded-xl border border-red-500/35 bg-red-500/[0.08] px-4 py-3 text-sm text-red-200">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.75"
+                      strokeLinecap="round"
+                      className="mt-0.5 h-4 w-4 shrink-0 text-red-400/90"
+                      aria-hidden
+                    >
+                      <circle cx="12" cy="12" r="9" />
+                      <line x1="5.64" y1="5.64" x2="18.36" y2="18.36" />
+                    </svg>
+                    <span>
+                      {blockedByText(run.remediation?.safety.reasons ?? [])}
+                    </span>
+                  </div>
 
-              <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                <div className="space-y-6">
-                  <IncidentPanel run={run} />
-                  <RootCausePanel run={run} />
-                </div>
-                <div className="space-y-6">
+                  {/* The block owns the stage. */}
                   <RemediationPanel
                     run={run}
                     onDecision={submitDecision}
                     onEscalate={escalate}
                     busy={busy}
+                    wide
                   />
-                  <PostMortemView run={run} />
+
+                  {/* Incident + root cause move beneath the verdict. */}
+                  <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+                    <IncidentPanel run={run} />
+                    <RootCausePanel run={run} />
+                  </div>
+                </>
+              ) : (
+                <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+                  <div className="space-y-6">
+                    <IncidentPanel run={run} />
+                    <RootCausePanel run={run} />
+                  </div>
+                  <div className="space-y-6">
+                    <RemediationPanel
+                      run={run}
+                      onDecision={submitDecision}
+                      onEscalate={escalate}
+                      busy={busy}
+                    />
+                    <PostMortemView run={run} />
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         )}

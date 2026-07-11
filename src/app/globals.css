@@ -216,6 +216,11 @@ pre,
     0 0 34px rgba(239, 68, 68, 0.22), inset 0 0 34px rgba(239, 68, 68, 0.12);
   animation: vigil-stamp 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
+/* Full-width blocked layout: the seal grows to own the stage. */
+.vigil-seal--lg {
+  width: 250px;
+  height: 250px;
+}
 .vigil-seal::before {
   content: "";
   position: absolute;
