@@ -172,6 +172,80 @@ pre,
   }
 }
 
+/* — The Safety Gate seal — the single element where red is meant to dominate.
+   A struck steel medallion: red ring, a faint radial + tick-ring fill, a dashed
+   inner ring, and a one-shot stamp with a light-sweep on mount. The stamp and
+   sweep are collapsed by the reduced-motion guard below (it lands instantly). */
+.vigil-seal {
+  position: relative;
+  width: 190px;
+  height: 190px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  overflow: hidden;
+  border: 2px solid rgba(248, 113, 113, 0.55);
+  background: radial-gradient(
+      circle at 50% 34%,
+      rgba(239, 68, 68, 0.16),
+      transparent 60%
+    ),
+    repeating-conic-gradient(
+      from 0deg,
+      rgba(239, 68, 68, 0.1) 0 6deg,
+      transparent 6deg 12deg
+    );
+  box-shadow: 0 0 0 7px rgba(239, 68, 68, 0.05),
+    0 0 34px rgba(239, 68, 68, 0.22), inset 0 0 34px rgba(239, 68, 68, 0.12);
+  animation: vigil-stamp 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.vigil-seal::before {
+  content: "";
+  position: absolute;
+  inset: 12px;
+  border-radius: 50%;
+  border: 1px dashed rgba(248, 113, 113, 0.4);
+}
+.vigil-seal::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -40%;
+  height: 40%;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    rgba(255, 255, 255, 0.12),
+    transparent
+  );
+  animation: vigil-seal-sweep 1.5s cubic-bezier(0.22, 1, 0.36, 1) 0.35s;
+}
+@keyframes vigil-stamp {
+  0% {
+    opacity: 0;
+    transform: scale(1.4) rotate(-7deg);
+    filter: blur(3px);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(0.95) rotate(1deg);
+    filter: blur(0);
+  }
+  100% {
+    transform: scale(1) rotate(0);
+  }
+}
+@keyframes vigil-seal-sweep {
+  from {
+    top: -40%;
+  }
+  to {
+    top: 120%;
+  }
+}
+
 /* Motion is purposeful only. Honour the OS preference globally: strip every
    decorative animation and collapse transitions to near-instant. */
 @media (prefers-reduced-motion: reduce) {

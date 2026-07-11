@@ -54,6 +54,20 @@ export function blockedSubtitle(reasons: string[]): string {
   return "destructive-action policy";
 }
 
+/** Short legend for the seal's lower ring, derived from the sources present.
+ *  Like blockedSubtitle, it never names Enkrypt unless Enkrypt actually flagged
+ *  the remediation. POLICY-only reads "VIGIL POLICY"; Enkrypt-only reads
+ *  "ENKRYPT THREAT SCAN"; both read "ENKRYPT · VIGIL POLICY". */
+export function blockedGateArc(reasons: string[]): string {
+  const sources = new Set(reasons.map((r) => parseReason(r).source));
+  const hasPolicy = sources.has("POLICY");
+  const hasEnkrypt = sources.has("ENKRYPT");
+
+  if (hasPolicy && hasEnkrypt) return "ENKRYPT · VIGIL POLICY";
+  if (hasEnkrypt) return "ENKRYPT THREAT SCAN";
+  return "VIGIL POLICY";
+}
+
 export const BLOCKED_TAIL =
   "It cannot be approved — reject or escalate to a human.";
 

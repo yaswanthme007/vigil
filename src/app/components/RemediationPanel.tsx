@@ -4,8 +4,8 @@ import { useState } from "react";
 import { Card, BlastRadiusMeter, EnkryptBadge, ServiceBadge } from "./ui";
 import {
   parseReason,
-  blockedByText,
-  blockedSubtitle,
+  blockedLead,
+  blockedGateArc,
   type ReasonSource,
 } from "./safety";
 import type { RunState } from "./types";
@@ -43,6 +43,34 @@ function LockIcon({ className }: { className?: string }) {
       <rect x="5" y="11" width="14" height="9" rx="2" />
       <path d="M8 11V7a4 4 0 0 1 8 0v4" />
     </svg>
+  );
+}
+
+/** The Safety Gate seal — a struck circular medallion. The center verdict is
+ *  a universal truth about a blocked plan (approval is refused by the engine,
+ *  HTTP 403); the lower ring legend is DERIVED from the reason sources, so it
+ *  never names Enkrypt unless Enkrypt actually flagged the remediation. Pure
+ *  CSS/SVG, existing font stack. */
+function SafetySeal({ arc }: { arc: string }) {
+  return (
+    <div className="grid place-items-center py-1">
+      <div className="vigil-seal">
+        <span className="pointer-events-none absolute inset-x-0 top-[17px] text-center font-mono text-[8.5px] uppercase tracking-[0.32em] text-red-300/70">
+          Safety Gate
+        </span>
+        <div className="px-6">
+          <div className="text-[30px] font-semibold leading-none tracking-[0.14em] text-red-300 [text-shadow:0_0_22px_rgba(239,68,68,0.45)]">
+            BLOCKED
+          </div>
+          <div className="mx-auto mt-2 max-w-[8.5rem] font-mono text-[8px] uppercase leading-[1.4] tracking-[0.22em] text-red-200/70">
+            Human approval cannot override
+          </div>
+        </div>
+        <span className="pointer-events-none absolute inset-x-0 bottom-[17px] text-center font-mono text-[8.5px] uppercase tracking-[0.26em] text-red-300/55">
+          {arc}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -128,29 +156,17 @@ export function RemediationPanel({
 
   /* ————————————————— BLOCKED: the hero moment ————————————————— */
   if (blocked) {
+    const reasons = plan.safety.reasons;
     return (
       <Card title="Proposed Remediation" step={5} accent="#fca5a5">
         <div className="space-y-5">
           {/* The seal owns the panel. */}
-          <div className="rounded-lg border border-red-500/40 bg-red-500/[0.06] px-4 py-5">
-            <div className="flex items-center gap-4">
-              <ProhibitIcon className="h-10 w-10 shrink-0 text-red-400/90" />
-              <div>
-                <p className="text-2xl font-semibold leading-none tracking-[0.22em] text-red-300">
-                  BLOCKED
-                </p>
-                <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.2em] text-red-300/55">
-                  Safety Gate
-                </p>
-                <p className="mt-0.5 font-mono text-[10px] tracking-wide text-red-300/40">
-                  {blockedSubtitle(plan.safety.reasons)}
-                </p>
-              </div>
-            </div>
-            <p className="mt-4 border-t border-red-500/20 pt-3 text-sm leading-relaxed text-red-100/85">
-              {blockedByText(plan.safety.reasons)}
-            </p>
-          </div>
+          <SafetySeal arc={blockedGateArc(reasons)} />
+
+          {/* Attributed lead — derived from the sources actually present. */}
+          <p className="text-center text-sm leading-relaxed text-red-100/85">
+            {blockedLead(reasons)}
+          </p>
 
           {/* Why — reasons enumerated, each tagged by source. */}
           <div>
@@ -158,7 +174,7 @@ export function RemediationPanel({
               Why it was blocked
             </p>
             <ul className="space-y-1.5">
-              {plan.safety.reasons.map((r, i) => {
+              {reasons.map((r, i) => {
                 const { source, text } = parseReason(r);
                 return (
                   <li key={i} className="flex items-start gap-2 text-sm text-white/75">
@@ -174,8 +190,8 @@ export function RemediationPanel({
           <div>
             <div className="mb-1.5 flex items-center gap-1.5 text-white/40">
               <LockIcon className="h-3.5 w-3.5" />
-              <p className="text-xs uppercase tracking-wide">
-                Refused fix — Vigil will not run this
+              <p className="text-xs uppercase tracking-[0.18em]">
+                Neutralized — will not execute
               </p>
             </div>
             <ol className="space-y-1.5">
@@ -196,7 +212,7 @@ export function RemediationPanel({
             </ol>
           </div>
 
-          <BlastRadiusMeter score={plan.blast_radius_score} />
+          <BlastRadiusMeter score={plan.blast_radius_score} scale />
 
           <div className="flex flex-wrap items-center gap-2 text-xs text-white/50">
             <span>Impacts:</span>
@@ -212,26 +228,42 @@ export function RemediationPanel({
             <p className="text-xs text-white/60">{plan.rollback_procedure}</p>
           </div>
 
-          {/* Approve is absent by construction — only Reject / Escalate. */}
+          {/* Approve is absent by construction — its slot is shown withheld, so
+             the room sees the refusal rather than a missing button. */}
           {actionable && !rejecting && (
-            <div className="flex gap-2 border-t border-white/10 pt-4">
-              <button
-                disabled={busy}
-                onClick={() => setRejecting(true)}
-                className="flex-1 rounded-lg border border-white/12 bg-white/[0.04] px-4 py-2 text-sm font-semibold text-white/70 transition-colors duration-150 ease-out hover:bg-white/[0.08] disabled:opacity-40"
+            <div className="space-y-2 border-t border-white/10 pt-4">
+              <div
+                aria-disabled="true"
+                title="Approval is withheld — a blocked remediation is structurally unapprovable (the engine refuses it, HTTP 403)."
+                className="flex w-full select-none items-center justify-center gap-2 rounded-lg border border-dashed border-white/[0.14] bg-transparent px-4 py-2 font-mono text-xs uppercase tracking-[0.16em] text-white/25"
               >
-                Reject
-              </button>
-              <button
-                disabled={busy}
-                onClick={onEscalate}
-                className="flex-1 rounded-lg border border-amber-500/40 bg-amber-500/15 px-4 py-2 text-sm font-semibold text-amber-200 transition-colors duration-150 ease-out hover:bg-amber-500/25 disabled:opacity-40"
-              >
-                Escalate to human
-              </button>
+                <ProhibitIcon className="h-3.5 w-3.5" />
+                Approve · Withheld
+              </div>
+              <div className="flex gap-2">
+                <button
+                  disabled={busy}
+                  onClick={() => setRejecting(true)}
+                  className="flex-1 rounded-lg border border-white/12 bg-white/[0.04] px-4 py-2 text-sm font-semibold text-white/70 transition-colors duration-150 ease-out hover:bg-white/[0.08] disabled:opacity-40"
+                >
+                  Reject
+                </button>
+                <button
+                  disabled={busy}
+                  onClick={onEscalate}
+                  className="flex-1 rounded-lg border border-amber-500/40 bg-amber-500/15 px-4 py-2 text-sm font-semibold text-amber-200 transition-colors duration-150 ease-out hover:bg-amber-500/25 disabled:opacity-40"
+                >
+                  Escalate to human
+                </button>
+              </div>
             </div>
           )}
           {rejectEditor}
+
+          {/* The closing principle. */}
+          <p className="border-t border-white/10 pt-3 text-center text-sm italic text-white/45">
+            Vigil will not apply what it cannot undo.
+          </p>
         </div>
       </Card>
     );

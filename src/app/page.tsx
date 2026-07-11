@@ -187,8 +187,20 @@ export default function Dashboard() {
             )}
 
             {run.status === "blocked" && (
-              <div className="rounded-xl border border-red-500/35 bg-red-500/[0.08] px-4 py-3 text-sm text-red-200">
-                {blockedByText(run.remediation?.safety.reasons ?? [])}
+              <div className="flex items-start gap-2.5 rounded-xl border border-red-500/35 bg-red-500/[0.08] px-4 py-3 text-sm text-red-200">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.75"
+                  strokeLinecap="round"
+                  className="mt-0.5 h-4 w-4 shrink-0 text-red-400/90"
+                  aria-hidden
+                >
+                  <circle cx="12" cy="12" r="9" />
+                  <line x1="5.64" y1="5.64" x2="18.36" y2="18.36" />
+                </svg>
+                <span>{blockedByText(run.remediation?.safety.reasons ?? [])}</span>
               </div>
             )}
 

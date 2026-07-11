@@ -80,7 +80,13 @@ export function ConfidenceBar({ value }: { value: number }) {
 /** Blast-radius meter: LOW green, ELEVATED amber, HIGH hot-amber.
  *  Red is reserved for the blocked seal — a high blast radius escalates in
  *  temperature (amber → orange) rather than borrowing the block's colour. */
-export function BlastRadiusMeter({ score }: { score: number }) {
+export function BlastRadiusMeter({
+  score,
+  scale = false,
+}: {
+  score: number;
+  scale?: boolean;
+}) {
   const clamped = Math.max(0, Math.min(100, score));
   const color = clamped >= 70 ? "#fb923c" : clamped >= 40 ? "#fbbf24" : "#34d399";
   const label = clamped >= 70 ? "HIGH" : clamped >= 40 ? "ELEVATED" : "LOW";
@@ -101,6 +107,13 @@ export function BlastRadiusMeter({ score }: { score: number }) {
           style={{ width: `${clamped}%`, backgroundColor: color }}
         />
       </div>
+      {scale && (
+        <div className="mt-1.5 flex justify-between font-mono text-[10px] uppercase tracking-wide text-white/25">
+          <span>contained</span>
+          <span>elevated</span>
+          <span>catastrophic</span>
+        </div>
+      )}
     </div>
   );
 }
