@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vigil — Grounding Console (design prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+/* ============================================================
+   VIGIL — "GROUNDED / War Room"
+   Standalone design prototype. Not wired to the app.
+   Phosphor-telemetry incident console for an SRE at 2am.
+   ============================================================ */
+
+:root{
+  --canvas:#07080a;
+  --ink-0:#f4f6f8;      /* brightest text */
+  --ink-1:rgba(244,246,248,.82);
+  --ink-2:rgba(244,246,248,.56);
+  --ink-3:rgba(244,246,248,.34);
+  --ink-4:rgba(244,246,248,.18);
+  --hair:rgba(244,246,248,.09);
+  --hair-strong:rgba(244,246,248,.16);
+
+  --surface-1:rgba(255,255,255,.022);
+  --surface-2:rgba(255,255,255,.04);
+
+  /* reserved signals */
+  --grounded:#4ade80;          /* green: grounded / safe / resolved */
+  --grounded-dim:rgba(74,222,128,.14);
+  --await:#f5b642;             /* amber: awaiting a human */
+  --await-dim:rgba(245,182,66,.14);
+  --blocked:#ff4d4d;           /* red: BLOCKED — and nowhere else */
+  --blocked-dim:rgba(255,77,77,.12);
+
+  --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --serif:'Instrument Serif',Georgia,'Times New Roman',serif;
+
+  --ease:cubic-bezier(.22,1,.36,1);
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--canvas);
+  color:var(--ink-1);
+  font-family:var(--mono);
+  font-size:14px;
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+  font-variant-numeric:tabular-nums;
+  overflow-x:hidden;
+}
+
+/* ---- layered atmosphere (background, not solid) ---- */
+.bg{position:fixed;inset:0;pointer-events:none;z-index:0}
+.bg-grid{
+  position:absolute;inset:0;
+  background-image:
+    linear-gradient(var(--hair) 1px,transparent 1px),
+    linear-gradient(90deg,var(--hair) 1px,transparent 1px);
+  background-size:64px 64px;
+  mask-image:radial-gradient(ellipse 90% 70% at 50% 30%,#000 30%,transparent 78%);
+  opacity:.5;
+}
+.bg-vignette{
+  position:absolute;inset:0;
+  background:radial-gradient(ellipse 120% 90% at 50% -10%,rgba(74,222,128,.06),transparent 55%),
+             radial-gradient(ellipse 100% 100% at 50% 120%,rgba(0,0,0,.6),transparent 60%);
+}
+.bg-scan{
+  position:absolute;inset:0;opacity:.5;
+  background:repeating-linear-gradient(0deg,rgba(255,255,255,.025) 0 1px,transparent 1px 3px);
+  animation:scan 12s linear infinite;
+}
+.bg-grain{
+  position:absolute;inset:-50%;opacity:.05;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+@keyframes scan{from{transform:translateY(0)}to{transform:translateY(3px)}}
+
+/* ---- shell ---- */
+.shell{position:relative;z-index:1;max-width:1180px;margin:0 auto;padding:28px 28px 64px}
+
+/* ---- header ---- */
+header{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;
+  padding-bottom:18px;border-bottom:1px solid var(--hair);
+  opacity:0;animation:rise .6s var(--ease) .05s forwards}
+.brand{display:flex;align-items:baseline;gap:14px}
+.mark{
+  width:26px;height:26px;flex:none;position:relative;align-self:center;
+  border:1.5px solid var(--grounded);border-radius:6px;
+  box-shadow:0 0 18px rgba(74,222,128,.25),inset 0 0 10px rgba(74,222,128,.12);
+}
+.mark::before{content:"";position:absolute;inset:6px;border-radius:2px;
+  background:conic-gradient(from 210deg,var(--grounded),transparent 60%);opacity:.85}
+.mark::after{content:"";position:absolute;left:50%;top:50%;width:5px;height:5px;
+  transform:translate(-50%,-50%);border-radius:50%;background:var(--canvas);
+  box-shadow:0 0 0 2px var(--grounded)}
+.wordmark{font-family:var(--serif);font-size:34px;line-height:.9;letter-spacing:.5px;color:var(--ink-0)}
+.tagline{font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:var(--ink-3);margin-top:5px}
+
+.readouts{display:flex;align-items:center;gap:26px}
+.readout{text-align:right}
+.readout .k{font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:var(--ink-3)}
+.readout .v{font-size:15px;color:var(--ink-1);font-weight:600;margin-top:3px;display:flex;align-items:center;gap:7px;justify-content:flex-end}
+.pulse{width:7px;height:7px;border-radius:50%;background:var(--grounded);
+  box-shadow:0 0 0 0 rgba(74,222,128,.5);animation:beat 2.4s var(--ease) infinite}
+/* flywheel counter */
+.flywheel{display:inline-block;height:1.1em;overflow:hidden;line-height:1.1em}
+.flywheel b{display:block;color:var(--grounded);font-weight:700;animation:roll .9s var(--ease)}
+@keyframes roll{from{transform:translateY(1.1em);opacity:0}to{transform:translateY(0);opacity:1}}
+
+/* ---- main grid: signal spine + console ---- */
+.layout{display:grid;grid-template-columns:64px 1fr;gap:24px;margin-top:26px}
+
+/* signal spine */
+.spine{position:relative;padding-top:6px}
+.spine-line{position:absolute;left:31px;top:14px;bottom:14px;width:1px;background:var(--hair-strong)}
+.node{position:relative;height:74px;display:flex;flex-direction:column;align-items:center;
+  opacity:0;animation:rise .5s var(--ease) forwards}
+.dot{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--hair-strong);
+  background:var(--canvas);z-index:1;display:grid;place-items:center;font-size:8px;color:var(--ink-3)}
+.node.done .dot{border-color:var(--grounded);color:var(--grounded);
+  box-shadow:0 0 12px rgba(74,222,128,.35)}
+.node.active .dot{border-color:var(--await);background:var(--await);
+  box-shadow:0 0 0 5px var(--await-dim);animation:hold 2.6s ease-in-out infinite}
+.node.gate .dot{border-color:var(--blocked);color:var(--blocked);
+  box-shadow:0 0 14px rgba(255,77,77,.4);background:var(--blocked-dim)}
+.node .lbl{position:absolute;left:44px;top:-1px;white-space:nowrap;font-size:10px;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.node.done .lbl{color:var(--ink-2)}
+.node.gate .lbl{color:var(--blocked)}
+.node.active .lbl{color:var(--await)}
+.seg{width:1px;flex:1;background:var(--hair-strong)}
+.node.done .seg{background:linear-gradient(var(--grounded),var(--hair-strong))}
+
+/* console */
+.console{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media(max-width:900px){.layout{grid-template-columns:1fr}.spine{display:none}.console{grid-template-columns:1fr}}
+
+.card{
+  position:relative;border:1px solid var(--hair);border-radius:14px;
+  background:linear-gradient(180deg,var(--surface-2),var(--surface-1));
+  padding:18px;opacity:0;animation:rise .55s var(--ease) forwards;
+  backdrop-filter:blur(2px);
+}
+.card h2{font-family:var(--serif);font-size:22px;font-weight:400;color:var(--ink-0);letter-spacing:.3px}
+.card .eyebrow{font-size:10px;letter-spacing:.26em;text-transform:uppercase;color:var(--ink-3);
+  display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.eyebrow .tick{width:14px;height:1px;background:var(--ink-4)}
+
+/* chips */
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:11px;letter-spacing:.04em;
+  padding:3px 9px;border-radius:999px;border:1px solid var(--hair-strong);color:var(--ink-2)}
+.chip.sev{border-color:var(--await);color:var(--await);background:var(--await-dim)}
+.chip.grounded{border-color:var(--grounded);color:var(--grounded);background:var(--grounded-dim)}
+.chip.mono{font-family:var(--mono)}
+.svc{font-size:11px;color:var(--ink-2);padding:2px 8px;border:1px solid var(--hair);border-radius:6px}
+
+.meta-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.kv{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px dashed var(--hair)}
+.kv:last-child{border-bottom:0}
+.kv .k{color:var(--ink-3);font-size:12px;letter-spacing:.06em}
+.kv .v{color:var(--ink-1)}
+
+/* hypothesis */
+.hyp{border:1px solid var(--hair);border-radius:10px;padding:12px;margin-top:10px;background:rgba(0,0,0,.18)}
+.hyp .top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.hyp .claim{color:var(--ink-0);font-size:13.5px;line-height:1.45}
+.conf{font-size:11px;color:var(--grounded)}
+.bar{height:4px;border-radius:3px;background:rgba(255,255,255,.06);margin-top:10px;overflow:hidden}
+.bar>i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,var(--grounded),#a7f3d0);
+  box-shadow:0 0 10px rgba(74,222,128,.5)}
+.cites{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px}
+.cite{font-size:11px;font-family:var(--mono);color:var(--grounded);cursor:pointer;
+  padding:2px 8px;border:1px solid var(--grounded-dim);border-radius:6px;background:var(--grounded-dim);
+  transition:all .15s var(--ease)}
+.cite:hover{border-color:var(--grounded);box-shadow:0 0 10px rgba(74,222,128,.25)}
+.hyp.struck{opacity:.4}
+.hyp.struck .claim{text-decoration:line-through;text-decoration-color:var(--ink-4)}
+.struck-tag{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);
+  border:1px solid var(--hair);border-radius:5px;padding:2px 7px}
+
+/* ============ THE BLOCKED HERO ============ */
+.blocked-card{grid-column:1 / -1;overflow:hidden;
+  border-color:rgba(255,77,77,.28);
+  background:
+    radial-gradient(120% 100% at 80% -20%,rgba(255,77,77,.10),transparent 55%),
+    linear-gradient(180deg,var(--surface-2),var(--surface-1));
+}
+.blocked-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:24px;align-items:center}
+@media(max-width:760px){.blocked-grid{grid-template-columns:1fr}}
+
+/* the steel seal */
+.seal-wrap{display:grid;place-items:center;padding:6px}
+.seal{
+  position:relative;width:230px;height:230px;border-radius:50%;
+  display:grid;place-items:center;text-align:center;
+  color:var(--blocked);
+  border:2px solid rgba(255,77,77,.6);
+  background:
+    radial-gradient(circle at 50% 32%,rgba(255,77,77,.16),transparent 60%),
+    repeating-conic-gradient(from 0deg,rgba(255,77,77,.12) 0 6deg,transparent 6deg 12deg);
+  box-shadow:
+    0 0 0 8px rgba(255,77,77,.06),
+    0 0 40px rgba(255,77,77,.28),
+    inset 0 0 40px rgba(255,77,77,.14);
+  animation:stamp .5s var(--ease) both;
+}
+.seal::before{content:"";position:absolute;inset:14px;border-radius:50%;
+  border:1px dashed rgba(255,77,77,.45)}
+.seal .verdict{font-family:var(--serif);font-size:46px;line-height:.86;letter-spacing:2px;
+  color:#ff6b6b;text-shadow:0 0 24px rgba(255,77,77,.5)}
+.seal .sub{font-size:9.5px;letter-spacing:.34em;text-transform:uppercase;color:rgba(255,120,120,.9);margin-top:8px}
+.seal .arc{position:absolute;inset:0;font-size:9px;letter-spacing:.3em;color:rgba(255,120,120,.7)}
+.seal .arc.t{top:20px}
+.seal .arc.b{bottom:20px}
+/* scanline sweep across the seal on stamp */
+.seal .sweep{position:absolute;inset:0;border-radius:50%;overflow:hidden}
+.seal .sweep::after{content:"";position:absolute;left:0;right:0;height:40%;
+  background:linear-gradient(180deg,transparent,rgba(255,255,255,.14),transparent);
+  animation:sweep 1.6s var(--ease) .4s}
+@keyframes stamp{
+  0%{transform:scale(1.5) rotate(-8deg);opacity:0;filter:blur(4px)}
+  60%{transform:scale(.94) rotate(1deg);opacity:1;filter:blur(0)}
+  100%{transform:scale(1) rotate(0)}
+}
+@keyframes sweep{from{top:-40%}to{top:120%}}
+
+.blocked-detail .lead{font-family:var(--serif);font-size:23px;line-height:1.28;color:var(--ink-0);font-style:italic}
+.attn{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--blocked);margin-bottom:10px;
+  display:flex;align-items:center;gap:8px}
+.attn .dotr{width:7px;height:7px;border-radius:50%;background:var(--blocked);animation:beat 1.8s var(--ease) infinite}
+.reasons{margin-top:16px;display:flex;flex-direction:column;gap:9px}
+.reason{display:flex;gap:10px;align-items:flex-start;font-size:13px;color:var(--ink-1)}
+.src{flex:none;font-size:9.5px;letter-spacing:.12em;padding:2px 7px;border-radius:5px;margin-top:1px}
+.src.policy{color:var(--blocked);border:1px solid rgba(255,77,77,.4);background:var(--blocked-dim)}
+.src.enkrypt{color:var(--ink-2);border:1px solid var(--hair-strong)}
+
+.steps-neutral{margin-top:18px;border-top:1px solid var(--hair);padding-top:14px}
+.steps-neutral .cap{font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}
+.nstep{display:flex;gap:10px;align-items:center;padding:6px 0;color:var(--ink-3);font-size:13px}
+.nstep .lock{flex:none;color:var(--ink-4)}
+.nstep s{text-decoration-color:var(--ink-4)}
+
+.actions{grid-column:1 / -1;display:flex;gap:12px;margin-top:22px;padding-top:18px;border-top:1px solid var(--hair);align-items:center}
+.btn{font-family:var(--mono);font-size:13px;letter-spacing:.03em;padding:10px 18px;border-radius:9px;
+  border:1px solid var(--hair-strong);background:var(--surface-2);color:var(--ink-1);cursor:pointer;
+  transition:all .15s var(--ease)}
+.btn:hover{background:rgba(255,255,255,.07)}
+.btn.ghost{border-style:dashed;color:var(--ink-2)}
+.note{font-size:12px;color:var(--ink-3);margin-left:auto;font-style:italic;font-family:var(--serif);font-size:15px}
+.absent{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-4);
+  border:1px dashed var(--hair);border-radius:8px;padding:9px 14px}
+
+/* blast meter */
+.blast{margin-top:14px}
+.blast .row{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-2);margin-bottom:7px}
+.blast .track{height:8px;border-radius:5px;background:rgba(255,255,255,.05);overflow:hidden;position:relative}
+.blast .track>i{display:block;height:100%;border-radius:5px;
+  background:linear-gradient(90deg,var(--blocked),#ff8a8a);box-shadow:0 0 14px rgba(255,77,77,.4)}
+.blast .ticks{display:flex;justify-content:space-between;margin-top:6px;font-size:10px;color:var(--ink-4)}
+
+footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--hair);
+  display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;
+  font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+footer .stack span{color:var(--ink-2)}
+
+/* motion primitives */
+@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes beat{0%,100%{box-shadow:0 0 0 0 rgba(74,222,128,.45)}50%{box-shadow:0 0 0 6px rgba(74,222,128,0)}}
+@keyframes hold{0%,100%{opacity:1}50%{opacity:.5}}
+
+@media(prefers-reduced-motion:reduce){
+  *,::before,::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
+}
+</style>
+</head>
+<body>
+<div class="bg" aria-hidden="true">
+  <div class="bg-vignette"></div>
+  <div class="bg-grid"></div>
+  <div class="bg-scan"></div>
+  <div class="bg-grain"></div>
+</div>
+
+<div class="shell">
+  <!-- HEADER -->
+  <header>
+    <div class="brand">
+      <span class="mark"></span>
+      <div>
+        <div class="wordmark">Vigil</div>
+        <div class="tagline">Grounded · Safe · Self-improving</div>
+      </div>
+    </div>
+    <div class="readouts">
+      <div class="readout">
+        <div class="k">Incidents in memory</div>
+        <div class="v"><span class="flywheel"><b>26</b></span></div>
+      </div>
+      <div class="readout">
+        <div class="k">System</div>
+        <div class="v"><span class="pulse"></span> Active</div>
+      </div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <!-- SIGNAL SPINE -->
+    <div class="spine">
+      <div class="spine-line"></div>
+      <div class="node done"  style="animation-delay:.10s"><span class="dot">✓</span><span class="lbl">Detect</span><span class="seg"></span></div>
+      <div class="node done"  style="animation-delay:.16s"><span class="dot">✓</span><span class="lbl">Retrieve</span><span class="seg"></span></div>
+      <div class="node done"  style="animation-delay:.22s"><span class="dot">✓</span><span class="lbl">Root&nbsp;cause</span><span class="seg"></span></div>
+      <div class="node done"  style="animation-delay:.28s"><span class="dot">✓</span><span class="lbl">Grounding&nbsp;gate</span><span class="seg"></span></div>
+      <div class="node done"  style="animation-delay:.34s"><span class="dot">✓</span><span class="lbl">Remediate</span><span class="seg"></span></div>
+      <div class="node gate"   style="animation-delay:.40s"><span class="dot">✕</span><span class="lbl">Safety&nbsp;gate</span><span class="seg"></span></div>
+      <div class="node active" style="animation-delay:.46s"><span class="dot"></span><span class="lbl">Human</span><span class="seg"></span></div>
+      <div class="node"        style="animation-delay:.52s"><span class="dot"></span><span class="lbl">Post-mortem</span></div>
+    </div>
+
+    <!-- CONSOLE -->
+    <div class="console">
+
+      <!-- INCIDENT -->
+      <div class="card" style="animation-delay:.14s">
+        <div class="eyebrow"><span class="tick"></span>Detected anomaly</div>
+        <h2>Payments API — cascading 5xx</h2>
+        <div class="meta-row">
+          <span class="chip sev">P1 · Critical</span>
+          <span class="chip mono">INC-LIVE-4192</span>
+          <span class="chip">03:47 UTC</span>
+        </div>
+        <div class="meta-row">
+          <span class="svc">payments-api</span>
+          <span class="svc">checkout</span>
+          <span class="svc">ledger-db</span>
+        </div>
+        <div style="margin-top:14px">
+          <div class="kv"><span class="k">Error rate</span><span class="v">4.2% → 61%</span></div>
+          <div class="kv"><span class="k">p99 latency</span><span class="v">180ms → 9.4s</span></div>
+          <div class="kv"><span class="k">Connection pool</span><span class="v">100 / 100 saturated</span></div>
+        </div>
+      </div>
+
+      <!-- ROOT CAUSE -->
+      <div class="card" style="animation-delay:.20s">
+        <div class="eyebrow"><span class="tick"></span>Grounded root cause <span class="chip grounded" style="margin-left:auto">✓ Grounded</span></div>
+        <div class="hyp">
+          <div class="top">
+            <span class="claim">ledger-db connection pool exhausted by an un-throttled retry storm</span>
+            <span class="conf">0.88</span>
+          </div>
+          <div class="bar"><i style="width:88%"></i></div>
+          <div class="cites">
+            <span class="cite">log_chunk#a17f</span>
+            <span class="cite">log_chunk#c204</span>
+            <span class="cite">INC-3097</span>
+          </div>
+        </div>
+        <div class="hyp struck">
+          <div class="top">
+            <span class="claim">Region-wide network partition</span>
+            <span class="struck-tag">Ungrounded — dropped</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- BLOCKED HERO -->
+      <div class="card blocked-card" style="animation-delay:.30s">
+        <div class="blocked-grid">
+          <div class="seal-wrap">
+            <div class="seal">
+              <div class="sweep"></div>
+              <div class="arc t">SAFETY&nbsp;GATE&nbsp;·&nbsp;SAFETY&nbsp;GATE</div>
+              <div>
+                <div class="verdict">BLOCKED</div>
+                <div class="sub">Human approval cannot override</div>
+              </div>
+              <div class="arc b">ENKRYPT&nbsp;·&nbsp;VIGIL&nbsp;POLICY</div>
+            </div>
+          </div>
+
+          <div class="blocked-detail">
+            <div class="attn"><span class="dotr"></span>Remediation halted</div>
+            <div class="lead">Vigil's destructive-action policy blocked this remediation.</div>
+            <div class="reasons">
+              <div class="reason"><span class="src policy">POLICY</span><span>Proposed step drops the <code>ledger_txn</code> table — irreversible data loss with no rollback path.</span></div>
+              <div class="reason"><span class="src policy">POLICY</span><span>Scale-to-zero on <code>ledger-db</code> would sever every in-flight settlement.</span></div>
+              <div class="reason"><span class="src enkrypt">ENKRYPT</span><span>Threat scan: clean. Enkrypt did not object — the block is Vigil's own policy.</span></div>
+            </div>
+
+            <div class="blast">
+              <div class="row"><span>Blast radius</span><span style="color:var(--blocked)">92 / 100 · irreversible</span></div>
+              <div class="track"><i style="width:92%"></i></div>
+              <div class="ticks"><span>contained</span><span>elevated</span><span>catastrophic</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="steps-neutral">
+          <div class="cap">Neutralized — will not execute</div>
+          <div class="nstep"><span class="lock">▣</span><s>DROP TABLE ledger_txn; -- reclaim connections</s></div>
+          <div class="nstep"><span class="lock">▣</span><s>kubectl scale deploy/ledger-db --replicas=0</s></div>
+        </div>
+
+        <div class="actions">
+          <button class="btn ghost">Reject</button>
+          <button class="btn">Escalate to a human</button>
+          <span class="absent">Approve · withheld</span>
+          <span class="note">Vigil will not apply what it cannot undo.</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <footer>
+    <div class="stack">Grounded, safe, self-improving incident response &nbsp;·&nbsp; <span>Mastra</span> · <span>Qdrant</span> · <span>Enkrypt</span> · <span>Groq</span></div>
+    <div>Design prototype — not wired to the engine</div>
+  </footer>
+</div>
+</body>
+</html>

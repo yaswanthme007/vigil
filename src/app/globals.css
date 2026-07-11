@@ -102,6 +102,76 @@ pre,
   animation: vigil-roll 0.8s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* — Ambient depth ("War Room" atmosphere) —
+   One fixed layer painted behind all content: a soft vignette with a whisper
+   of phosphor at the top edge, a faint masked grid, slow-drifting scanlines,
+   and a grain overlay. Purely decorative — pointer-events:none, aria-hidden,
+   and z-index:-1 so it paints above the body background but beneath every
+   panel and control (it can never intercept input or cover the UI). The
+   scanline drift is frozen by the reduced-motion guard below. */
+.vigil-atmosphere {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+}
+.vigil-atmosphere > span {
+  position: absolute;
+  inset: 0;
+}
+.va-vignette {
+  background: radial-gradient(
+      ellipse 120% 80% at 50% -12%,
+      rgba(52, 211, 153, 0.05),
+      transparent 55%
+    ),
+    radial-gradient(
+      ellipse 100% 100% at 50% 120%,
+      rgba(0, 0, 0, 0.55),
+      transparent 60%
+    );
+}
+.va-grid {
+  background-image: linear-gradient(var(--hairline) 1px, transparent 1px),
+    linear-gradient(90deg, var(--hairline) 1px, transparent 1px);
+  background-size: 64px 64px;
+  -webkit-mask-image: radial-gradient(
+    ellipse 90% 65% at 50% 28%,
+    #000 32%,
+    transparent 78%
+  );
+  mask-image: radial-gradient(
+    ellipse 90% 65% at 50% 28%,
+    #000 32%,
+    transparent 78%
+  );
+  opacity: 0.45;
+}
+.va-scan {
+  opacity: 0.5;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(255, 255, 255, 0.02) 0 1px,
+    transparent 1px 3px
+  );
+  animation: vigil-scan 12s linear infinite;
+}
+.va-grain {
+  inset: -50%;
+  opacity: 0.045;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+@keyframes vigil-scan {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(3px);
+  }
+}
+
 /* Motion is purposeful only. Honour the OS preference globally: strip every
    decorative animation and collapse transitions to near-instant. */
 @media (prefers-reduced-motion: reduce) {

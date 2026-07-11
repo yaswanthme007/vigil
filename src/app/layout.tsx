@@ -27,7 +27,15 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <div className="vigil-atmosphere" aria-hidden="true">
+          <span className="va-vignette" />
+          <span className="va-grid" />
+          <span className="va-scan" />
+          <span className="va-grain" />
+        </div>
+        {children}
+      </body>
     </html>
   );
 }
