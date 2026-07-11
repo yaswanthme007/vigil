@@ -28,7 +28,15 @@ function MemoryCounter({ value }: { value: number }) {
   );
 }
 
-export function Header({ memoryCount }: { memoryCount: number }) {
+export function Header({
+  memoryCount,
+  onNewIncident,
+  showNewIncident,
+}: {
+  memoryCount: number;
+  onNewIncident?: () => void;
+  showNewIncident?: boolean;
+}) {
   return (
     <header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.08] pb-5">
       <div className="flex items-center gap-3">
@@ -56,6 +64,31 @@ export function Header({ memoryCount }: { memoryCount: number }) {
           <span className="text-xs text-white/45">Incidents in memory</span>
           <MemoryCounter value={memoryCount} />
         </div>
+
+        {/* Always-available escape hatch during a run: walk away and start
+            fresh even if the run is stuck server-side. Memory is untouched. */}
+        {showNewIncident && onNewIncident && (
+          <button
+            onClick={onNewIncident}
+            title="Leave this run and start a new incident (memory is untouched)"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-white/60 transition-colors duration-150 ease-out hover:border-white/[0.16] hover:bg-white/[0.06] hover:text-white/85"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-3.5 w-3.5"
+              aria-hidden
+            >
+              <path d="M3 12a9 9 0 1 0 3-6.7" />
+              <path d="M3 4v4h4" />
+            </svg>
+            New incident
+          </button>
+        )}
       </div>
     </header>
   );

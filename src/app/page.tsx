@@ -39,6 +39,22 @@ export default function Dashboard() {
   //    until the freshly-created run's id arrives.
   const launchingRef = useRef(false);
   const launchAtRunIdRef = useRef<string | null>(null);
+  // Persisted across a page refresh (sessionStorage): the runId the user
+  // explicitly walked away from via "New incident". A run that is stuck
+  // server-side keeps coming back through /api/status after a refresh; keying
+  // the dismissal to its id lets the client stay on the briefing instead of
+  // re-entering the broken run. Cleared the moment a new scenario is triggered.
+  const dismissedRunIdRef = useRef<string | null>(null);
+
+  // Hydrate the persisted dismissal before the first poll (this effect is
+  // declared ahead of the poll effect, so it runs first on mount).
+  useEffect(() => {
+    try {
+      dismissedRunIdRef.current = sessionStorage.getItem("vigil.dismissedRunId");
+    } catch {
+      /* sessionStorage unavailable — dismissal just won't persist a refresh */
+    }
+  }, []);
 
   const poll = useCallback(async () => {
     const runId = runIdRef.current;
@@ -49,6 +65,10 @@ export default function Dashboard() {
       const data = (await res.json()) as StatusResponse;
       setMemoryCount(data.memoryCount);
       if (dismissedRef.current) return; // idle after Reset — keep run cleared
+
+      // A run the user explicitly walked away from (persisted across refresh):
+      // never re-enter it — stay on the briefing until a new scenario starts.
+      if (data.run && data.run.runId === dismissedRunIdRef.current) return;
 
       if (launchingRef.current) {
         // While a new run spins up, accept ONLY the freshly-created run. Ignore
@@ -67,7 +87,14 @@ export default function Dashboard() {
         return; // otherwise keep the "initializing incident…" scaffold up
       }
 
-      if (data.run) setRun(data.run);
+      if (data.run) {
+        // Hydrate the runId ref so approval/escalation target the correct run
+        // even when it was recovered from /api/status after a page refresh
+        // (the initial mount polls without a runId → latestRun). Without this,
+        // Approve's `if (!runIdRef.current) return` guard silently no-ops.
+        if (!runIdRef.current) runIdRef.current = data.run.runId;
+        setRun(data.run);
+      }
     } catch {
       /* transient — keep last state, dashboard must never crash */
     }
@@ -91,6 +118,12 @@ export default function Dashboard() {
       setRun(null);
       runIdRef.current = null;
       dismissedRef.current = false; // a new run should render again
+      dismissedRunIdRef.current = null; // clear any walked-away run
+      try {
+        sessionStorage.removeItem("vigil.dismissedRunId");
+      } catch {
+        /* ignore */
+      }
       try {
         const res = await fetch("/api/incident", {
           method: "POST",
@@ -164,6 +197,17 @@ export default function Dashboard() {
   // Clear the current run client-side and return to idle. Never touches the
   // server or Qdrant — the memory counter is unaffected.
   const resetRun = useCallback(() => {
+    // Remember the run we walked away from (persisted) so a refresh doesn't
+    // re-enter it — the escape hatch even when a run is stuck server-side.
+    const walkedAway = runIdRef.current;
+    if (walkedAway) {
+      dismissedRunIdRef.current = walkedAway;
+      try {
+        sessionStorage.setItem("vigil.dismissedRunId", walkedAway);
+      } catch {
+        /* non-persistent fallback — dismissedRef still holds it this session */
+      }
+    }
     runIdRef.current = null;
     dismissedRef.current = true;
     launchingRef.current = false;
@@ -181,7 +225,11 @@ export default function Dashboard() {
 
   return (
     <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
-      <Header memoryCount={memoryCount} />
+      <Header
+        memoryCount={memoryCount}
+        onNewIncident={resetRun}
+        showNewIncident={showRun}
+      />
 
       <div className="mt-6 space-y-6">
         {!showRun && (
