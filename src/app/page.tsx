@@ -164,62 +164,68 @@ export default function Dashboard() {
         )}
 
         {run && (
-          <>
-            <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <span className="text-xs uppercase tracking-widest text-white/40">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-[210px_1fr]">
+            {/* LEFT — the signal spine. Status pill + MTTR live at its head. */}
+            <aside className="lg:sticky lg:top-6 lg:self-start">
+              <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
+                <p className="mb-3 text-[10px] uppercase tracking-[0.2em] text-white/35">
                   Workflow
-                </span>
-                <div className="flex items-center gap-2">
+                </p>
+                <div className="mb-5 flex flex-wrap items-center gap-2">
                   <StatusPill run={run} />
                   {terminal && <ResetButton onClick={resetRun} />}
                 </div>
+                <WorkflowProgress run={run} />
               </div>
-              <WorkflowProgress run={run} />
+            </aside>
+
+            {/* RIGHT — banners flow above the panels in the remaining width. */}
+            <div className="space-y-6">
+              {run.status === "escalated" && (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
+                  {run.remediation
+                    ? "Safety Gate escalation — a destructive remediation was routed to a human engineer. Vigil will not apply it."
+                    : "No root-cause hypothesis passed the Enkrypt Grounding Gate. Escalated to a human — Vigil will not guess."}
+                </div>
+              )}
+
+              {run.status === "blocked" && (
+                <div className="flex items-start gap-2.5 rounded-xl border border-red-500/35 bg-red-500/[0.08] px-4 py-3 text-sm text-red-200">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.75"
+                    strokeLinecap="round"
+                    className="mt-0.5 h-4 w-4 shrink-0 text-red-400/90"
+                    aria-hidden
+                  >
+                    <circle cx="12" cy="12" r="9" />
+                    <line x1="5.64" y1="5.64" x2="18.36" y2="18.36" />
+                  </svg>
+                  <span>
+                    {blockedByText(run.remediation?.safety.reasons ?? [])}
+                  </span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+                <div className="space-y-6">
+                  <IncidentPanel run={run} />
+                  <RootCausePanel run={run} />
+                </div>
+                <div className="space-y-6">
+                  <RemediationPanel
+                    run={run}
+                    onDecision={submitDecision}
+                    onEscalate={escalate}
+                    busy={busy}
+                  />
+                  <PostMortemView run={run} />
+                </div>
+              </div>
             </div>
-
-            {run.status === "escalated" && (
-              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
-                {run.remediation
-                  ? "Safety Gate escalation — a destructive remediation was routed to a human engineer. Vigil will not apply it."
-                  : "No root-cause hypothesis passed the Enkrypt Grounding Gate. Escalated to a human — Vigil will not guess."}
-              </div>
-            )}
-
-            {run.status === "blocked" && (
-              <div className="flex items-start gap-2.5 rounded-xl border border-red-500/35 bg-red-500/[0.08] px-4 py-3 text-sm text-red-200">
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.75"
-                  strokeLinecap="round"
-                  className="mt-0.5 h-4 w-4 shrink-0 text-red-400/90"
-                  aria-hidden
-                >
-                  <circle cx="12" cy="12" r="9" />
-                  <line x1="5.64" y1="5.64" x2="18.36" y2="18.36" />
-                </svg>
-                <span>{blockedByText(run.remediation?.safety.reasons ?? [])}</span>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-              <div className="space-y-6">
-                <IncidentPanel run={run} />
-                <RootCausePanel run={run} />
-              </div>
-              <div className="space-y-6">
-                <RemediationPanel
-                  run={run}
-                  onDecision={submitDecision}
-                  onEscalate={escalate}
-                  busy={busy}
-                />
-                <PostMortemView run={run} />
-              </div>
-            </div>
-          </>
+          </div>
         )}
       </div>
 
