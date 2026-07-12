@@ -1,7 +1,0 @@
-[build]
-builder = "nixpacks"
-buildCommand = "npm install && npm run build:full"
-
-[deploy]
-startCommand = "npm run start:server"
-healthcheckPath = "/api/status"
